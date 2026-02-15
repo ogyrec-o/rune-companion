@@ -7,9 +7,9 @@ from typing import Any
 
 import openai
 
-from config import get_settings
-from llm_client import stream_chat_chunks
-from state import AppState
+from ..config import get_settings
+from ..llm.client import stream_chat_chunks
+from ..core.state import AppState
 
 logger = logging.getLogger(__name__)
 

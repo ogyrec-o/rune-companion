@@ -1,14 +1,14 @@
-# commands.py
+# src/rune_companion/cli/commands.py
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Callable, Dict, List
 
-from config import LLM_MODELS
-from memory_api import get_global_memories, get_top_room_memories, get_top_user_memories
-from state import AppState
-from tts_engine import TTSEngine
+from ..config import LLM_MODELS
+from ..memory.api import get_global_memories, get_top_room_memories, get_top_user_memories
+from ..core.state import AppState
+from ..tts.engine import TTSEngine
 
 CommandHandler = Callable[[AppState, List[str], str | None, str | None], str]
 

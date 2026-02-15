@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from config import get_settings
-from memory_store import MemoryItem, MemoryStore
-from state import AppState
+from ..config import get_settings
+from .store import MemoryItem, MemoryStore
+from ..core.state import AppState
 
 SUBJECT_USER = "user"
 SUBJECT_ROOM = "room"

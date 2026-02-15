@@ -1,4 +1,4 @@
-# tts_engine.py
+# src/rune_companion/tts/engine.py
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def _resolve_tts_config() -> TTSConfig:
     """
     # Preferred: settings object
     try:
-        from config import get_settings  # type: ignore
+        from ..config import get_settings  # type: ignore
 
         s = get_settings()
         return TTSConfig(
@@ -40,7 +40,7 @@ def _resolve_tts_config() -> TTSConfig:
 
     # Legacy fallback: config.py constants
     try:
-        from config import SPEAKER_WAV, XTTS_LANGUAGE, XTTS_SPEAKER_NAME  # type: ignore
+        from ..config import SPEAKER_WAV, XTTS_LANGUAGE, XTTS_SPEAKER_NAME  # type: ignore
 
         return TTSConfig(
             speaker_wav=SPEAKER_WAV or None,

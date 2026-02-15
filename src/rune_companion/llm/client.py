@@ -1,4 +1,4 @@
-# llm_client.py
+# src/rune_companion/llm/client.py
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import openai
 from openai import OpenAI
 
-from config import get_settings
+from ..config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +42,13 @@ def _timeouts_from_env() -> dict[str, float]:
     - read timeout: 25s (no data from server)
     - first token timeout: 20s (no content tokens)
     """
-    _env_float("RUNE_LLM_FIRST_TOKEN_TIMEOUT_SECONDS", 20.0)
-    _env_float("RUNE_LLM_READ_TIMEOUT_SECONDS", 25.0)
-    _env_float("RUNE_LLM_CONNECT_TIMEOUT_SECONDS", 5.0)
-# keep read >= first_token as a sane baseline
+    first_token = _env_float("RUNE_LLM_FIRST_TOKEN_TIMEOUT_SECONDS", 20.0)
+    read_timeout = _env_float("RUNE_LLM_READ_TIMEOUT_SECONDS", 25.0)
+    connect_timeout = _env_float("RUNE_LLM_CONNECT_TIMEOUT_SECONDS", 5.0)
+
+    # keep read >= first_token as a sane baseline
     read_timeout = max(read_timeout, first_token)
+
     return {
         "first_token": first_token,
         "read": read_timeout,

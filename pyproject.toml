@@ -1,5 +1,15 @@
 # pyproject.toml
 
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rune_companion"]
+
+[project.scripts]
+rune-companion = "rune_companion.__main__:main"
+
 [project]
 name = "rune-companion"
 version = "0.1.0"
@@ -7,6 +17,14 @@ requires-python = ">=3.12"
 description = "Minimal chat companion framework with memory, tasks, and Matrix connector."
 readme = "README.md"
 license = { text = "MIT" }
+
+dependencies = [
+    "openai",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+matrix = ["matrix-nio[e2e]"]
 
 [tool.ruff]
 target-version = "py312"
@@ -51,4 +69,4 @@ ignore = [
 "__init__.py" = ["F401"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["connectors", "tasks"]
+known-first-party = ["rune_companion"]

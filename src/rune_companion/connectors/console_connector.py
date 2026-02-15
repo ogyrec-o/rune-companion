@@ -1,4 +1,4 @@
-# connectors/console_connector.py
+# src/rune_companion/connectors/console_connector.py
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ import sys
 from datetime import datetime
 from typing import Optional
 
-from commands import registry as command_registry
-from core_chat import chat_with_streaming_console
-from state import AppState
+from ..cli.commands import registry as command_registry
+from ..core.chat import chat_with_streaming_console
+from ..core.state import AppState
 
 logger = logging.getLogger(__name__)
 
