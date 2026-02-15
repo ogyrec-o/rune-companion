@@ -1,4 +1,4 @@
-# memory_controller.py
+# src/rune_companion/memory/controller.py
 
 from __future__ import annotations
 
@@ -8,10 +8,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-import openai
-
-from ..config import get_settings
-from ..llm.client import stream_chat_chunks
 from .api import (
     remember_global_fact,
     remember_relationship_fact,
@@ -97,7 +93,7 @@ def run_memory_controller(
     - dict with key "ops" (list of operations), or None on failure.
     - Adds internal field "_history_text" used for evidence validation in apply_memory_plan().
     """
-    s = get_settings()
+    s = getattr(state, "settings", None)
     max_history_msgs = int(getattr(s, "memory_ctrl_planner_max_history_msgs", 12))
     max_msg_chars = int(getattr(s, "memory_ctrl_planner_max_msg_chars", 500))
 
@@ -143,11 +139,11 @@ def run_memory_controller(
 
     raw = ""
     try:
-        for piece in stream_chat_chunks([{"role": "user", "content": user_message}], MEMORY_CONTROLLER_SYSTEM_PROMPT):
+        for piece in state.llm.stream_chat(
+                [{"role": "user", "content": user_message}],
+                MEMORY_CONTROLLER_SYSTEM_PROMPT,
+        ):
             raw += piece
-    except openai.RateLimitError as e:
-        logger.warning("Memory controller rate limit: %s", e)
-        return None
     except Exception:
         logger.exception("Memory controller LLM call failed.")
         return None
@@ -194,7 +190,7 @@ def apply_memory_plan(
     if not isinstance(history_text, str):
         history_text = ""
 
-    task_store = getattr(state, "task_store", None)
+    task_store = state.task_store
 
     for op in ops:
         if not isinstance(op, dict):
@@ -289,9 +285,6 @@ def apply_memory_plan(
             state.memory.delete_memory(mem_id)
 
         elif op_kind == "task_add":
-            if task_store is None:
-                continue
-
             kind = str(op.get("kind") or "generic")
             description = op.get("description")
             if not isinstance(description, str) or not description.strip():

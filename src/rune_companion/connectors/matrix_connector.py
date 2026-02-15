@@ -13,13 +13,12 @@ from typing import Optional, Set
 from nio import MatrixRoom, RoomMessageText, exceptions
 
 from ..cli.commands import registry as command_registry
-from ..config import get_settings
 from .matrix_client import create_matrix_client
 from .matrix_e2ee import setup_self_verification
 from ..core.chat import generate_reply_text
+from ..core.ports import OutboundMessenger
 from ..core.state import AppState
-from ..tasks.task_models import Task, TaskStatus
-from ..tasks.task_scheduler import DispatchPhase, TaskDispatch, run_task_scheduler
+from ..tasks.task_scheduler import run_task_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -31,31 +30,6 @@ def _ms_now() -> int:
 def _room_allowlist(settings_rooms: list[str]) -> Optional[Set[str]]:
     rooms = [r.strip() for r in (settings_rooms or []) if str(r).strip()]
     return set(rooms) if rooms else None
-
-
-def _render_task_text(dispatch: TaskDispatch) -> str:
-    """
-    Render a task message for Matrix.
-
-    Why this lives here:
-    - The scheduler is infra-only; it decides what is runnable and which phase it is in.
-    - The connector decides how to format and deliver messages in a specific transport (Matrix).
-    """
-    task: Task = dispatch.task
-
-    if task.kind.startswith("ask_user"):
-        if dispatch.phase == DispatchPhase.ASK:
-            return (task.question_text or task.description or "").strip()
-
-        if dispatch.phase == DispatchPhase.REPLY_BACK:
-            ans = (task.answer_text or "").strip()
-            if ans:
-                return f"Answer received: {ans}"
-            return (task.description or "").strip()
-
-        return (task.description or "").strip()
-
-    return (task.description or "").strip()
 
 
 async def _send_text(client, *, room_id: str, text: str) -> None:
@@ -77,12 +51,16 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
     - main thread sets stop_event via loop.call_soon_threadsafe(stop_event.set)
     - we run a manual sync loop so we can exit promptly.
     """
-    settings = get_settings()
-    if not settings.matrix_enabled:
+    settings = getattr(state, "settings", None)
+    if settings is None:
+        logger.error("Matrix connector: missing state.settings")
+        return
+
+    if not getattr(settings, "matrix_enabled", False):
         logger.info("Matrix connector disabled via settings.")
         return
 
-    if not settings.matrix_homeserver or not settings.matrix_user_id:
+    if not getattr(settings, "matrix_homeserver", "") or not getattr(settings, "matrix_user_id", ""):
         logger.error("Matrix is enabled but not configured (homeserver/user_id).")
         return
 
@@ -92,15 +70,15 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
     allowed_rooms = _room_allowlist(getattr(settings, "matrix_rooms", []) or [])
     logger.info("Matrix allowed_rooms=%s", allowed_rooms if allowed_rooms is not None else "ALL")
 
-    client = await create_matrix_client()
+    client = await create_matrix_client(settings)
     if client is None:
         logger.error("Matrix client creation failed; connector will stop.")
         return
 
     logger.info(
         "Matrix client started (user=%s, homeserver=%s).",
-        settings.matrix_user_id,
-        settings.matrix_homeserver,
+        getattr(settings, "matrix_user_id", ""),
+        getattr(settings, "matrix_homeserver", ""),
     )
 
     # Self-verification handlers (SAS). Safe no-op if E2EE is off.
@@ -111,40 +89,53 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
 
     # ---- Task scheduler ----
 
-    async def send_task_dispatch(dispatch: TaskDispatch) -> None:
-        text = _render_task_text(dispatch)
-        if not text:
-            logger.debug("Task %s: empty text -> skipped", dispatch.task.id)
-            return
+    class _MatrixMessenger(OutboundMessenger):
+        async def send_text(
+                self,
+                *,
+                text: str,
+                room_id: str | None = None,
+                to_user_id: str | None = None,  # optional, ignored for now
+        ) -> None:
+            msg = (text or "").strip()
+            if not msg:
+                return
 
-        room_id = (dispatch.room_id or "").strip()
+            rid = (room_id or "").strip()
 
-        # If task has no room_id, pick:
-        # - first allowed room
-        # - otherwise any joined room
-        if not room_id:
-            if allowed_rooms:
-                room_id = next(iter(allowed_rooms))
-            elif client.rooms:
-                room_id = next(iter(client.rooms.keys()))
+            # If task has no room_id, pick:
+            # - first allowed room
+            # - otherwise any joined room
+            if not rid:
+                if allowed_rooms:
+                    rid = next(iter(allowed_rooms))
+                elif client.rooms:
+                    rid = next(iter(client.rooms.keys()))
 
-        if not room_id:
-            logger.warning("Task %s: no room_id -> skipped", dispatch.task.id)
-            return
+            if not rid:
+                raise RuntimeError("Matrix messenger: no room_id available to send the task message.")
 
-        try:
-            await _send_text(client, room_id=room_id, text=text)
-            logger.info("Task %s sent to room %s (phase=%s).", dispatch.task.id, room_id, dispatch.phase.value)
-        except Exception:
-            logger.exception("Failed to send task %s to room %s.", dispatch.task.id, room_id)
+            await _send_text(client, room_id=rid, text=msg)
 
-    scheduler_task = asyncio.create_task(
-        run_task_scheduler(
-            state.task_store,
-            send_task_dispatch,
-            interval_seconds=15.0,
+    tasks_enabled = bool(getattr(settings, "tasks_enabled", True))
+    scheduler_task: asyncio.Task | None = None
+    if tasks_enabled:
+        poll_s = float(getattr(settings, "tasks_poll_interval_seconds", 15.0))
+        retry_s = float(getattr(settings, "tasks_retry_delay_seconds", 60.0))
+        batch_n = int(getattr(settings, "tasks_batch_limit", 32))
+
+        scheduler_task = asyncio.create_task(
+            run_task_scheduler(
+                state.task_store,
+                _MatrixMessenger(),
+                interval_seconds=poll_s,
+                retry_delay_seconds=retry_s,
+                batch_limit=batch_n,
+            )
         )
-    )
+        logger.info("Task scheduler started (poll=%.1fs retry=%.1fs batch=%d).", poll_s, retry_s, batch_n)
+    else:
+        logger.info("Task scheduler disabled via settings (tasks_enabled=false).")
 
     # ---- Message callback ----
 
@@ -173,12 +164,27 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
 
         # Commands (/help, /tts, ...)
         if body.startswith("/"):
+            def emit(text: str) -> None:
+                logger.debug("Command note (room=%s user=%s): %s", room.room_id, event.sender, text)
+
             try:
                 if lock:
                     with lock:
-                        resp = command_registry.handle(state, body, user_id=event.sender, room_id=room.room_id)
+                        resp = command_registry.handle(
+                            state,
+                            body,
+                            user_id=event.sender,
+                            room_id=room.room_id,
+                            emit=emit,
+                        )
                 else:
-                    resp = command_registry.handle(state, body, user_id=event.sender, room_id=room.room_id)
+                    resp = command_registry.handle(
+                        state,
+                        body,
+                        user_id=event.sender,
+                        room_id=room.room_id,
+                        emit=emit,
+                    )
             except Exception:
                 logger.exception("Command handler crashed.")
                 resp = "Internal error while handling a command."
@@ -200,7 +206,7 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
                 logger.debug("Failed to send typing notification.", exc_info=True)
 
             # NOTE: generate_reply_text is synchronous and may take time.
-            # We keep it in the same thread and guard shared state with a lock.
+            # Guard shared state with a lock (best-effort).
             if lock:
                 with lock:
                     reply = generate_reply_text(state, body, user_id=event.sender, room_id=room.room_id)
@@ -250,9 +256,10 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
     except Exception:
         logger.exception("Matrix connector crashed.")
     finally:
-        scheduler_task.cancel()
-        with contextlib.suppress(Exception):
-            await scheduler_task
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+            with contextlib.suppress(Exception):
+                await scheduler_task
 
         with contextlib.suppress(Exception):
             await client.close()
@@ -284,8 +291,12 @@ def start_matrix_in_background(state: AppState) -> MatrixBackgroundRunner | None
     - console REPL is blocking (input()).
     - Matrix connector is async and wants its own event loop.
     """
-    settings = get_settings()
-    if not settings.matrix_enabled:
+    settings = getattr(state, "settings", None)
+    if settings is None:
+        logger.error("Matrix start: missing state.settings")
+        return None
+
+    if not getattr(settings, "matrix_enabled", False):
         logger.info("Matrix connector disabled, not starting.")
         return None
 

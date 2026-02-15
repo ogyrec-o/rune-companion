@@ -10,8 +10,6 @@ from typing import Any
 
 from nio import AsyncClient, AsyncClientConfig, LoginResponse
 
-from ..config import get_settings
-
 logger = logging.getLogger(__name__)
 
 try:
@@ -53,7 +51,7 @@ def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
         pass
 
 
-async def create_matrix_client() -> AsyncClient | None:
+async def create_matrix_client(settings) -> AsyncClient | None:
     """
     Create a Matrix AsyncClient with optional E2EE support.
 
@@ -61,12 +59,10 @@ async def create_matrix_client() -> AsyncClient | None:
     - It allows reusing the access token/device id across restarts without logging in again.
     - The file contains sensitive data and must never be committed (store under a gitignored dir).
     """
-    settings = get_settings()
-
-    homeserver = (settings.matrix_homeserver or "").strip()
-    user_id = (settings.matrix_user_id or "").strip()
-    password = (settings.matrix_password or "").strip()
-    store_dir = Path(settings.matrix_store_path)
+    homeserver = (getattr(settings, "matrix_homeserver", "") or "").strip()
+    user_id = (getattr(settings, "matrix_user_id", "") or "").strip()
+    password = (getattr(settings, "matrix_password", "") or "").strip()
+    store_dir = Path(getattr(settings, "matrix_store_path", Path(".local/rune/matrix_store")))
 
     if not homeserver or not user_id:
         logger.error("Matrix is not configured: set RUNE_MATRIX_HOMESERVER and RUNE_MATRIX_USER_ID")
@@ -132,7 +128,7 @@ async def create_matrix_client() -> AsyncClient | None:
         )
         return None
 
-    device_name = f"{settings.app_name} (Python)"
+    device_name = f"{getattr(settings, 'app_name', 'rune')} (Python)"
     logger.info("Logging in to Matrix to bootstrap a new session (device_name=%r)...", device_name)
 
     resp = await client.login(password=password, device_name=device_name)
