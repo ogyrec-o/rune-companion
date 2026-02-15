@@ -3,7 +3,7 @@
 """
 Documentation-only module (safe to commit).
 
-The real configuration is loaded from environment variables (see .env.example).
+The real configuration is loaded from environment variables (optionally via a local .env file).
 Do NOT commit real secrets. Use:
 - .env (local, gitignored)
 - config_local.py (local safe overrides, gitignored)
