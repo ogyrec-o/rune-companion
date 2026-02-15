@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-import openai
-
-from ..config import get_settings
-from ..llm.client import stream_chat_chunks, friendly_llm_error_message
 from ..memory.api import (
     get_global_memories,
     get_global_userstories,
@@ -22,15 +17,8 @@ from ..memory.controller import apply_memory_plan, run_memory_controller
 from ..memory.summarizer import summarize_dialog_chunk
 from .persona import get_system_prompt
 from .state import AppState
-from ..tasks.task_api import maybe_handle_reply
 
 logger = logging.getLogger(__name__)
-
-SENTENCE_REGEX = re.compile(r"[\.!\?…]")
-
-# Per dialog (user_id||room_id) counters for episodic summarization and memory controller.
-_EPISODE_COUNTERS: dict[str, int] = {}
-_MEMORY_CTRL_COUNTERS: dict[str, int] = {}
 
 
 def _make_key(user_id: str | None, room_id: str | None) -> str | None:
@@ -141,6 +129,31 @@ def _build_memory_block(*, sections: list[str]) -> str:
     return f"{header}{body}\n</MEMORY>"
 
 
+def _maybe_capture_task_reply(state: AppState, user_id: str | None, room_id: str | None, user_text: str) -> None:
+    """
+    If message looks like an answer to a previously created ask_user* task,
+    store it and mark task as ANSWER_RECEIVED so scheduler can do phase-2.
+    """
+    if not user_id or not room_id:
+        return
+
+    try:
+        task = state.task_store.find_waiting_ask_task(to_user_id=user_id, room_id=room_id)
+    except Exception:
+        logger.exception("find_waiting_ask_task failed (user_id=%s room_id=%s)", user_id, room_id)
+        return
+
+    if not task:
+        return
+
+    try:
+        now_ts = datetime.now(timezone.utc).timestamp()
+        state.task_store.save_answer_and_mark_received(task.id, user_text, now_ts)  # type: ignore[attr-defined]
+        logger.info("Captured answer for task_id=%s user=%s room=%s", getattr(task, "id", "?"), user_id, room_id)
+    except Exception:
+        logger.exception("save_answer_and_mark_received failed task_id=%s", getattr(task, "id", "?"))
+
+
 def _maybe_run_episode_summary(
         state: AppState,
         user_id: str | None,
@@ -151,20 +164,23 @@ def _maybe_run_episode_summary(
     If enough messages accumulated in this dialog, ask the summarizer model
     to produce an episodic summary and store it as memory.
     """
-    settings = get_settings()
-    key = _make_key(user_id, room_id)
-    if key is None or not state.save_history:
+    if not state.save_history:
         return
 
-    threshold = int(getattr(settings, "memory_episode_threshold_messages", 20))
-    chunk_size = int(getattr(settings, "memory_episode_chunk_messages", 24))
+    key = _make_key(user_id, room_id)
+    if key is None:
+        return
 
-    cnt = _EPISODE_COUNTERS.get(key, 0) + 1
-    _EPISODE_COUNTERS[key] = cnt
+    s = state.settings
+    threshold = int(getattr(s, "memory_episode_threshold_messages", 20))
+    chunk_size = int(getattr(s, "memory_episode_chunk_messages", 24))
+
+    cnt = state.episode_counters.get(key, 0) + 1
+    state.episode_counters[key] = cnt
     if cnt < threshold:
         return
 
-    _EPISODE_COUNTERS[key] = 0
+    state.episode_counters[key] = 0
 
     chunk = messages_for_llm[-chunk_size:]
     if not chunk:
@@ -175,13 +191,12 @@ def _maybe_run_episode_summary(
     if not summary:
         return
 
-    # Avoid polluting memory if summarizer says there are no facts.
-    s = summary.strip().lower()
-    if s.startswith(("no significant facts", "нет значимых фактов")):
+    ssum = summary.strip().lower()
+    if ssum.startswith(("no significant facts", "нет значимых фактов")):
         logger.info("Episode summary skipped (no significant facts).")
         return
 
-    # Local imports to avoid cycles
+    # local import to avoid cycles
     from ..memory.api import remember_relationship_fact, remember_room_fact
 
     tags = ["episode", "summary"]
@@ -220,30 +235,33 @@ def _maybe_run_memory_controller(
     - decides which facts to add/update/delete
     - can also create tasks
     """
-    settings = get_settings()
-    key = _make_key(user_id, room_id)
-    if key is None or not state.save_history:
+    if not state.save_history:
         return
 
-    every_n = int(getattr(settings, "memory_ctrl_every_n_messages", 1))
-    last_n = int(getattr(settings, "memory_ctrl_last_messages", 8))
+    key = _make_key(user_id, room_id)
+    if key is None:
+        return
 
-    cnt = _MEMORY_CTRL_COUNTERS.get(key, 0) + 1
-    _MEMORY_CTRL_COUNTERS[key] = cnt
+    s = state.settings
+    every_n = int(getattr(s, "memory_ctrl_every_n_messages", 1))
+    last_n = int(getattr(s, "memory_ctrl_last_messages", 8))
+
+    cnt = state.memory_ctrl_counters.get(key, 0) + 1
+    state.memory_ctrl_counters[key] = cnt
     if cnt < every_n:
         return
 
-    _MEMORY_CTRL_COUNTERS[key] = 0
+    state.memory_ctrl_counters[key] = 0
 
     last_messages = messages_for_llm[-last_n:]
 
     # Collect current memories for the controller prompt.
     current_memories: list[Any] = []
 
-    limit_user = int(getattr(settings, "memory_prompt_limit_user", 12))
-    limit_rel = int(getattr(settings, "memory_prompt_limit_rel", 12))
-    limit_room = int(getattr(settings, "memory_prompt_limit_room", 8))
-    limit_global = int(getattr(settings, "memory_prompt_limit_global", 8))
+    limit_user = int(getattr(s, "memory_prompt_limit_user", 12))
+    limit_rel = int(getattr(s, "memory_prompt_limit_rel", 12))
+    limit_room = int(getattr(s, "memory_prompt_limit_room", 8))
+    limit_global = int(getattr(s, "memory_prompt_limit_global", 8))
 
     if user_id:
         current_memories.extend(get_top_user_memories(state, user_id, limit=limit_user))
@@ -273,129 +291,33 @@ def _maybe_run_memory_controller(
     apply_memory_plan(state, plan, default_user_id=user_id, default_room_id=room_id)
 
 
-def chat_with_streaming_console(state: AppState, user_text: str) -> None:
-    """
-    Console mode:
-    - streams response to stdout
-    - optionally speaks sentences via TTS
-    - uses a single global history: state.conversation
-    """
-    def _ts_local() -> str:
-        return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
-
-    settings = get_settings()
-    app_name = str(getattr(settings, "app_name", "rune"))
-
-    if state.save_history:
-        messages_for_llm = [*state.conversation, {"role": "user", "content": user_text}]
-    else:
-        messages_for_llm = [{"role": "user", "content": user_text}]
-
-    buffer = ""
-    assistant_full = ""
-    system_prompt = get_system_prompt(state.tts_enabled)
-
-    printed_prefix = False
-
-    try:
-        for piece in stream_chat_chunks(messages_for_llm, system_prompt):
-            if piece:
-                if not printed_prefix:
-                    print(f"[{_ts_local()}] <<< {app_name}: ", end="", flush=True)
-                    printed_prefix = True
-
-                print(piece, end="", flush=True)
-                assistant_full += piece
-                buffer += piece
-
-                if state.tts_enabled:
-                    while True:
-                        m = SENTENCE_REGEX.search(buffer)
-                        if not m:
-                            break
-                        sentence = buffer[: m.end()].strip()
-                        buffer = buffer[m.end() :]
-                        if sentence:
-                            state.tts_engine.speak_sentence(sentence)
-
-    except openai.RateLimitError as e:
-        logger.warning("LLM rate limit: %s", e)
-        print(f"[{_ts_local()}] [LLM] Rate-limited by the provider. Please try again shortly.")
-        return
-    except RuntimeError as e:
-        msg = friendly_llm_error_message(e)
-        logger.info("LLM runtime error: %s", msg)
-        print(f"[{_ts_local()}] [LLM] {msg}")
-        return
-    except Exception:
-        logger.exception("Unexpected error while streaming LLM output.")
-        print(f"[{_ts_local()}] [LLM] Internal error while generating a reply.")
-        return
-
-    # If model produced nothing at all, give a clear message.
-    if not printed_prefix:
-        print(f"[{_ts_local()}] [LLM] No output (model produced no content).")
-        return
-
-    if state.tts_enabled:
-        tail = buffer.strip()
-        if tail:
-            state.tts_engine.speak_sentence(tail)
-
-        try:
-            state.tts_engine.wait_all()
-        except Exception:
-            logger.debug("TTS wait_all failed.", exc_info=True)
-
-        print(f"\n[{_ts_local()}] [LLM] Audio done.\n")
-    else:
-        print("\n")
-
-    assistant_full = assistant_full.strip()
-    if state.save_history and assistant_full:
-        state.conversation.append({"role": "user", "content": user_text})
-        state.conversation.append({"role": "assistant", "content": assistant_full})
-
-
 def _collect_open_tasks_for_user(state: AppState, user_id: str | None) -> list[Any]:
     """Fetch open tasks for a given user_id (best-effort)."""
     if not user_id:
         return []
-    task_store = getattr(state, "task_store", None)
-    if task_store is None:
-        return []
     try:
-        return task_store.list_open_tasks_for_user(user_id, limit=16)
+        return state.task_store.list_open_tasks_for_user(user_id, limit=16)
     except Exception:
         logger.exception("list_open_tasks_for_user failed (user_id=%s)", user_id)
         return []
 
 
-def generate_reply_text(
+def stream_reply(
         state: AppState,
         user_text: str,
         *,
         user_id: str | None = None,
         room_id: str | None = None,
-) -> str:
+) -> Iterable[str]:
     """
-    Chat mode for connectors (Matrix/Discord/etc).
-
-    Key behaviors:
-    - per-(user_id, room_id) dialog history stored in state.dialog_histories
-    - episodic summaries and memory controller can update MemoryStore / TaskStore
-    - inject relevant memories and open tasks into the system prompt
+    Core streaming API:
+    - yields assistant text chunks
+    - updates history when stream completes
     """
-    settings = get_settings()
+    # Capture possible reply to ask_user task (best-effort).
+    _maybe_capture_task_reply(state, user_id, room_id, user_text)
 
-    # 0) If this might be a reply to a previously created task, handle it.
-    if user_id and room_id:
-        try:
-            maybe_handle_reply(state, user_id, room_id, user_text)
-        except Exception:
-            logger.exception("maybe_handle_reply failed (user_id=%s room_id=%s)", user_id, room_id)
-
-    # 1) Build history (per user/room) if enabled.
+    # Build history.
     history: list[dict[str, str]] | None = None
     if state.save_history:
         key = _make_key(user_id, room_id)
@@ -407,18 +329,19 @@ def generate_reply_text(
     else:
         messages_for_llm = [{"role": "user", "content": user_text}]
 
-    # 1.5) Episodic summaries.
+    # Episodic summaries.
     _maybe_run_episode_summary(state, user_id, room_id, messages_for_llm)
 
-    # 1.7) Memory controller.
+    # Memory controller.
     _maybe_run_memory_controller(state, user_id, room_id, messages_for_llm)
 
-    # 2) Query relevant memories (guard against None IDs).
-    limit_user = int(getattr(settings, "memory_prompt_limit_user", 12))
-    limit_rel = int(getattr(settings, "memory_prompt_limit_rel", 12))
-    limit_room = int(getattr(settings, "memory_prompt_limit_room", 8))
-    limit_global = int(getattr(settings, "memory_prompt_limit_global", 8))
-    limit_userstories = int(getattr(settings, "memory_prompt_limit_global_userstories", 8))
+    # Query relevant memories.
+    s = state.settings
+    limit_user = int(getattr(s, "memory_prompt_limit_user", 12))
+    limit_rel = int(getattr(s, "memory_prompt_limit_rel", 12))
+    limit_room = int(getattr(s, "memory_prompt_limit_room", 8))
+    limit_global = int(getattr(s, "memory_prompt_limit_global", 8))
+    limit_userstories = int(getattr(s, "memory_prompt_limit_global_userstories", 8))
 
     user_mems = get_top_user_memories(state, user_id, limit=limit_user) if user_id else []
     room_mems = get_top_room_memories(state, room_id, limit=limit_room) if room_id else []
@@ -448,7 +371,6 @@ def generate_reply_text(
     if global_mems:
         lines = ["General notes (global memory):"]
         for m in global_mems:
-            # Keep "stories about other people" separate.
             if "other_user" in (getattr(m, "tags", None) or []):
                 continue
             lines.append(_format_mem_line(m))
@@ -467,37 +389,44 @@ def generate_reply_text(
 
     memory_block = _build_memory_block(sections=sections)
 
-    # 3) System prompt + injected memory.
+    # System prompt + injected memory.
     system_prompt = get_system_prompt(state.tts_enabled)
     if memory_block:
         system_prompt = f"{system_prompt.strip()}\n\n{memory_block}\n"
-        logger.debug("Injected memory block (%d chars).", len(memory_block))
 
+    # Stream from LLM and collect assistant text to update history at the end.
     assistant_full = ""
+    completed = False
     try:
-        for piece in stream_chat_chunks(messages_for_llm, system_prompt):
-            assistant_full += piece
-    except openai.RateLimitError:
-        return "The service is temporarily rate-limited. Please try again shortly."
-    except RuntimeError as e:
-        # Friendly config/runtime error (e.g. missing API key) — safe to show to user.
-        msg = friendly_llm_error_message(e)
-        logger.info("LLM runtime error: %s", msg)
-        return msg
-    except Exception:
-        logger.exception("LLM generation failed.")
-        return "Internal error while generating a reply. Please try again."
+        for piece in state.llm.stream_chat(messages_for_llm, system_prompt):
+            if piece:
+                assistant_full += piece
+                yield piece
+        completed = True
+    finally:
+        assistant_full = (assistant_full or "").strip()
 
-    assistant_full = assistant_full.strip()
+        if completed and state.save_history and assistant_full and history is not None:
+            history.append({"role": "user", "content": user_text})
+            history.append({"role": "assistant", "content": assistant_full})
 
-    # 4) Update dialog history.
-    if state.save_history and assistant_full and history is not None:
-        history.append({"role": "user", "content": user_text})
-        history.append({"role": "assistant", "content": assistant_full})
+            max_msgs = int(getattr(s, "memory_max_dialog_messages", 80))
+            if len(history) > max_msgs:
+                overflow = len(history) - max_msgs
+                del history[:overflow]
 
-        max_msgs = int(getattr(settings, "memory_max_dialog_messages", 80))
-        if len(history) > max_msgs:
-            overflow = len(history) - max_msgs
-            del history[:overflow]
 
-    return assistant_full
+def generate_reply_text(
+        state: AppState,
+        user_text: str,
+        *,
+        user_id: str | None = None,
+        room_id: str | None = None,
+) -> str:
+    """
+    Non-streaming helper for connectors that want a full string.
+    """
+    out = ""
+    for piece in stream_reply(state, user_text, user_id=user_id, room_id=room_id):
+        out += piece
+    return out.strip()

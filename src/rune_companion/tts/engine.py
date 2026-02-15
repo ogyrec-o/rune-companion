@@ -20,39 +20,27 @@ class TTSConfig:
     xtts_language: str
 
 
-def _resolve_tts_config() -> TTSConfig:
-    """
-    Resolve TTS config from settings if available, otherwise fall back to legacy config constants.
-    This keeps the module import-safe and compatible during refactors.
-    """
-    # Preferred: settings object
-    try:
-        from ..config import get_settings  # type: ignore
-
-        s = get_settings()
+def _resolve_tts_config(settings: Any | None) -> TTSConfig:
+    # Preferred: read from injected settings
+    if settings is not None:
+        speaker_wav = getattr(settings, "speaker_wav", None) or getattr(settings, "tts_speaker_wav", None)
         return TTSConfig(
-            speaker_wav=getattr(s, "speaker_wav", None) or getattr(s, "tts_speaker_wav", None),
-            xtts_speaker_name=getattr(s, "xtts_speaker_name", "Ana Florence"),
-            xtts_language=getattr(s, "xtts_language", "en"),
+            speaker_wav=str(speaker_wav) if speaker_wav else None,
+            xtts_speaker_name=getattr(settings, "xtts_speaker_name", "Ana Florence"),
+            xtts_language=getattr(settings, "xtts_language", "en"),
         )
-    except Exception:
-        pass
 
-    # Legacy fallback: config.py constants
+    # Legacy fallback: config.py constants (NO get_settings())
     try:
         from ..config import SPEAKER_WAV, XTTS_LANGUAGE, XTTS_SPEAKER_NAME  # type: ignore
 
         return TTSConfig(
-            speaker_wav=SPEAKER_WAV or None,
+            speaker_wav=str(SPEAKER_WAV) if SPEAKER_WAV else None,
             xtts_speaker_name=XTTS_SPEAKER_NAME or "Ana Florence",
             xtts_language=XTTS_LANGUAGE or "en",
         )
     except Exception:
-        return TTSConfig(
-            speaker_wav=None,
-            xtts_speaker_name="Ana Florence",
-            xtts_language="en",
-        )
+        return TTSConfig(speaker_wav=None, xtts_speaker_name="Ana Florence", xtts_language="en")
 
 
 class TTSEngine:
@@ -69,7 +57,7 @@ class TTSEngine:
     - Speaker WAV is optional; if missing/unreadable, we fall back to a named speaker.
     """
 
-    def __init__(self, enabled: bool):
+    def __init__(self, enabled: bool, settings: Any | None = None):
         self.enabled = bool(enabled)
 
         self._queue: Optional["queue.Queue[str | None]"] = None
@@ -106,7 +94,7 @@ class TTSEngine:
 
         self._sd = sd
 
-        cfg = _resolve_tts_config()
+        cfg = _resolve_tts_config(settings)
 
         # Initialize XTTS model
         try:

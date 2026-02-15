@@ -9,26 +9,13 @@ from typing import Optional, TYPE_CHECKING
 
 from ..config import get_settings
 from ..connectors.console_connector import run_console_loop
-from ..core.state import create_initial_state, load_dialog_histories, save_dialog_histories
+from ..cli.bootstrap import create_initial_state, load_dialog_histories, save_dialog_histories
+from ..logging_setup import setup_logging
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..connectors.matrix_connector import MatrixBackgroundRunner
-
-def _configure_logging(level: str) -> None:
-    lvl = getattr(logging, str(level).upper(), logging.INFO)
-    logging.basicConfig(
-        level=lvl,
-        format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    # Noisy libs: keep console output readable (especially during streaming).
-    logging.getLogger("nio").setLevel(max(lvl, logging.INFO))
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("openai").setLevel(logging.WARNING)
 
 
 def _shutdown(state) -> None:
@@ -56,11 +43,25 @@ def _shutdown(state) -> None:
 
 def main() -> None:
     settings = get_settings()
-    _configure_logging(getattr(settings, "log_level", "INFO"))
+
+    # choose console log level from settings.log_level
+    level_name = str(getattr(settings, "log_level", "INFO")).upper()
+    console_level = getattr(logging, level_name, logging.INFO)
+
+    # choose log dir (prefer settings.data_dir if it exists)
+    log_dir = getattr(settings, "data_dir", ".local/rune")
+    setup_logging(log_dir=log_dir, console_level=console_level)
+
+    # keep noisy libs readable (optional but recommended)
+    logging.getLogger("nio").setLevel(max(console_level, logging.INFO))
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
 
     logger.info("Starting %s...", getattr(settings, "app_name", "rune"))
 
-    state = create_initial_state()
+    # IMPORTANT: reuse same settings object
+    state = create_initial_state(settings=settings)
 
     # Shared state is used by multiple connectors (console + matrix thread).
     # Add a single lock to serialize access (best-effort, MVP safety).

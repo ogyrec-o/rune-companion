@@ -1,14 +1,10 @@
-# memory_summarizer.py
+# src/rune_companion/memory/summarizer.py
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-import openai
-
-from ..config import get_settings
-from ..llm.client import stream_chat_chunks
 from ..core.state import AppState
 
 logger = logging.getLogger(__name__)
@@ -44,7 +40,7 @@ def summarize_dialog_chunk(state: AppState, dialog_messages: list[dict[str, Any]
     if not dialog_messages:
         return None
 
-    s = get_settings()
+    s = getattr(state, "settings", None)
     max_msg_chars = int(getattr(s, "memory_summarizer_max_msg_chars", 600))
     max_summary_chars = int(getattr(s, "memory_summarizer_max_summary_chars", 800))
 
@@ -58,11 +54,8 @@ def summarize_dialog_chunk(state: AppState, dialog_messages: list[dict[str, Any]
 
     raw = ""
     try:
-        for piece in stream_chat_chunks(trimmed, SUMMARY_SYSTEM_PROMPT):
+        for piece in state.llm.stream_chat(trimmed, SUMMARY_SYSTEM_PROMPT):
             raw += piece
-    except openai.RateLimitError as e:
-        logger.warning("Summarizer rate limit: %s", e)
-        return None
     except Exception:
         logger.exception("Summarizer failed.")
         return None

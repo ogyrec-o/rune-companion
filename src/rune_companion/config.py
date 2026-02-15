@@ -1,4 +1,4 @@
-# config.py
+# src/rune_companion/config.py
 
 """Centralized settings loaded from environment variables (+ optional .env).
 

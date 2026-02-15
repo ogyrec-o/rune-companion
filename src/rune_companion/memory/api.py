@@ -1,11 +1,10 @@
-# memory_api.py
+# src/rune_companion/memory/api.py
 
 from __future__ import annotations
 
 from typing import Optional
 
-from ..config import get_settings
-from .store import MemoryItem, MemoryStore
+from .store import MemoryItem
 from ..core.state import AppState
 
 SUBJECT_USER = "user"
@@ -16,12 +15,16 @@ SUBJECT_GLOBAL = "global"
 
 def _global_id(state: AppState) -> str:
     # Central place for the reserved global subject id.
-    # If you ever change it, do it here.
-    return state.memory.global_subject_id() if isinstance(state.memory, MemoryStore) else "__GLOBAL__"
+    # Delegate to MemoryRepo implementation.
+    try:
+        return state.memory.global_subject_id()
+    except Exception:
+        # Absolute last-resort fallback; should never happen with MemoryStore.
+        return "__GLOBAL__"
 
 
-def _limits() -> tuple[int, int, int, int]:
-    s = get_settings()
+def _limits(state: AppState) -> tuple[int, int, int, int]:
+    s = getattr(state, "settings", None)
     return (
         int(getattr(s, "memory_max_user", 800)),
         int(getattr(s, "memory_max_room", 400)),
@@ -46,7 +49,7 @@ def remember_user_fact(
     if not person_ref:
         person_ref = f"user:{user_id}"
 
-    max_user, _, _, _ = _limits()
+    max_user, _, _, _ = _limits(state)
 
     mem_id = state.memory.add_memory(
         subject_type=SUBJECT_USER,
@@ -75,7 +78,7 @@ def remember_room_fact(
     if not room_id:
         raise ValueError("room_id is required")
 
-    _, max_room, _, _ = _limits()
+    _, max_room, _, _ = _limits(state)
 
     mem_id = state.memory.add_memory(
         subject_type=SUBJECT_ROOM,
@@ -107,7 +110,7 @@ def remember_relationship_fact(
     if not person_ref:
         person_ref = f"user:{user_id}"
 
-    _, _, max_rel, _ = _limits()
+    _, _, max_rel, _ = _limits(state)
 
     mem_id = state.memory.add_memory(
         subject_type=SUBJECT_RELATIONSHIP,
@@ -132,7 +135,7 @@ def remember_global_fact(
         source: str = "auto",
 ) -> int:
     """Store a global fact not tied to a specific user or room."""
-    _, _, _, max_global = _limits()
+    _, _, _, max_global = _limits(state)
     gid = _global_id(state)
 
     mem_id = state.memory.add_memory(
