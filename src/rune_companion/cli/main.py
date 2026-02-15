@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+"""
+CLI entrypoint.
+
+Initializes logging, builds AppState, then starts connectors:
+- console REPL in the main thread (optional),
+- Matrix connector in a background thread (optional).
+"""
+
 import logging
 import signal
 import threading
@@ -63,8 +71,8 @@ def main() -> None:
     # IMPORTANT: reuse same settings object
     state = create_initial_state(settings=settings)
 
-    # Shared state is used by multiple connectors (console + matrix thread).
-    # Add a single lock to serialize access (best-effort, MVP safety).
+    # Shared state may be accessed from multiple threads (console + Matrix).
+    # A single lock keeps state mutations serialized (good enough for MVP).
     if not hasattr(state, "lock"):
         state.lock = threading.RLock()
 

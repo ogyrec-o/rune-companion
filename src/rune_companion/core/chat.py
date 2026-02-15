@@ -2,6 +2,19 @@
 
 from __future__ import annotations
 
+"""
+Core chat orchestration.
+
+This module is transport-agnostic:
+- connectors provide inbound text + optional (user_id, room_id),
+- the core builds prompts, injects memory/tasks, and streams LLM output,
+- connectors decide how to display/send the stream (console, Matrix, etc.).
+
+Key invariants:
+- history is updated only after a successful stream completion (to avoid partial saves),
+- memory/tasks are injected inside a single <MEMORY>...</MEMORY> block to keep the prompt structure stable.
+"""
+
 import logging
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -310,11 +323,17 @@ def stream_reply(
         room_id: str | None = None,
 ) -> Iterable[str]:
     """
-    Core streaming API:
-    - yields assistant text chunks
-    - updates history when stream completes
+    Transport-neutral streaming API.
+
+    - Yields assistant text chunks as they arrive from the LLM client.
+    - Optionally persists per-dialog history (when save_history is enabled).
+    - Optionally runs episodic summarization + memory controller (which may create tasks).
+    - Captures user replies to ask-user tasks before generating a new response.
+
+    History is appended only if streaming completes successfully, to avoid storing partial assistant outputs.
     """
-    # Capture possible reply to ask_user task (best-effort).
+    # If the user is answering a previously asked question (ask_user* task),
+    # capture it first so the scheduler can run phase-2 before we generate a new reply.
     _maybe_capture_task_reply(state, user_id, room_id, user_text)
 
     # Build history.
@@ -395,6 +414,7 @@ def stream_reply(
         system_prompt = f"{system_prompt.strip()}\n\n{memory_block}\n"
 
     # Stream from LLM and collect assistant text to update history at the end.
+    # We only persist history on a clean completion; interrupted streams should not poison saved dialogs.
     assistant_full = ""
     completed = False
     try:

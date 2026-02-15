@@ -2,6 +2,16 @@
 
 from __future__ import annotations
 
+"""
+CLI bootstrap helpers.
+
+This module is the "composition root":
+- loads settings once,
+- ensures local (gitignored) directories exist,
+- wires concrete implementations into AppState (LLM/memory/tasks/TTS),
+- persists per-dialog histories as JSON (optional).
+"""
+
 import contextlib
 import json
 import logging
@@ -27,7 +37,9 @@ def _ensure_local_dirs(settings) -> None:
 
 def create_initial_state(*, settings=None) -> AppState:
     """
-    Create AppState from provided settings.
+    Create AppState from the provided settings.
+
+    Keeping settings injectable makes the app easier to test and avoids hidden global config reads.
     If settings is None, falls back to get_settings().
     """
     if settings is None:
@@ -82,6 +94,7 @@ def save_dialog_histories(state: AppState) -> None:
         tmp.write_text(json.dumps(state.dialog_histories, ensure_ascii=False, indent=2), "utf-8")
         os.replace(tmp, path)
         with contextlib.suppress(Exception):
+            # Best-effort: history may contain sensitive content, keep the file private on disk.
             os.chmod(path, 0o600)
         logger.info("Saved dialog histories: %d dialogs to %s", len(state.dialog_histories), path)
     except Exception:

@@ -2,6 +2,18 @@
 
 from __future__ import annotations
 
+"""
+Task scheduler.
+
+A small polling loop that:
+- fetches runnable tasks,
+- claims them (best-effort),
+- sends outbound messages via an injected messenger port,
+- advances task status or reschedules on failure.
+
+Transport routing (room selection, formatting) belongs to the connector, not the scheduler.
+"""
+
 import asyncio
 import logging
 import time
@@ -142,6 +154,8 @@ async def run_task_scheduler(
       On failure:
         - revert to PENDING (or ANSWER_RECEIVED for phase-2 tasks)
         - push due_at forward by retry_delay_seconds
+
+    To stop the scheduler, cancel the coroutine/task.
     """
     sleep_s = max(0.5, float(interval_seconds))
     retry_s = max(1.0, float(retry_delay_seconds))
