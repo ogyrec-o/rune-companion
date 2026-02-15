@@ -1,0 +1,110 @@
+# main.py
+
+from __future__ import annotations
+
+import logging
+import signal
+import threading
+from typing import Optional
+
+from config import get_settings
+from connectors.console_connector import run_console_loop
+from connectors.matrix_connector import MatrixBackgroundRunner, start_matrix_in_background
+from state import create_initial_state, load_dialog_histories, save_dialog_histories
+
+logger = logging.getLogger(__name__)
+
+def _configure_logging(level: str) -> None:
+    lvl = getattr(logging, str(level).upper(), logging.INFO)
+    logging.basicConfig(
+        level=lvl,
+        format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # Noisy libs: keep console output readable (especially during streaming).
+    logging.getLogger("nio").setLevel(max(lvl, logging.INFO))
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+
+
+def _shutdown(state) -> None:
+    """Best-effort shutdown (no exceptions should escape)."""
+    try:
+        save_dialog_histories(state)
+    except Exception:
+        logger.exception("Failed to save dialog histories.")
+
+    # TaskStore uses short-lived sqlite connections per call; no explicit close required.
+    try:
+        mem = getattr(state, "memory", None)
+        if mem is not None and hasattr(mem, "close"):
+            mem.close()
+    except Exception:
+        logger.debug("Memory close failed.", exc_info=True)
+
+    try:
+        tts = getattr(state, "tts_engine", None)
+        if tts is not None and hasattr(tts, "shutdown"):
+            tts.shutdown()
+    except Exception:
+        logger.debug("TTS shutdown failed.", exc_info=True)
+
+
+def main() -> None:
+    settings = get_settings()
+    _configure_logging(getattr(settings, "log_level", "INFO"))
+
+    logger.info("Starting %s...", getattr(settings, "app_name", "rune"))
+
+    state = create_initial_state()
+
+    # Shared state is used by multiple connectors (console + matrix thread).
+    # Add a single lock to serialize access (best-effort, MVP safety).
+    if not hasattr(state, "lock"):
+        state.lock = threading.RLock()
+
+    if getattr(state, "save_history", False):
+        try:
+            state.dialog_histories = load_dialog_histories(state)
+        except Exception:
+            logger.exception("Failed to load dialog histories.")
+
+    matrix_runner: Optional[MatrixBackgroundRunner] = None
+    if settings.matrix_enabled:
+        matrix_runner = start_matrix_in_background(state)
+
+    # Use an Event so main can wait without a busy while-loop.
+    stop_main = threading.Event()
+
+    def _handle_signal(signum, _frame) -> None:
+        logger.info("Signal %s received, shutting down...", signum)
+        stop_main.set()
+
+    try:
+        signal.signal(signal.SIGINT, _handle_signal)
+        signal.signal(signal.SIGTERM, _handle_signal)
+    except Exception:
+        # Some platforms may not support SIGTERM, etc.
+        pass
+
+    try:
+        if settings.console_enabled:
+            run_console_loop(state)
+            stop_main.set()
+        else:
+            logger.info("Console disabled. Running background connectors only. Press Ctrl+C to stop.")
+            stop_main.wait()
+
+    finally:
+        if matrix_runner is not None:
+            matrix_runner.stop()
+            matrix_runner.join(timeout=10.0)
+
+        _shutdown(state)
+        logger.info("Bye.")
+
+
+if __name__ == "__main__":
+    main()

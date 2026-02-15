@@ -1,0 +1,54 @@
+# pyproject.toml
+
+[project]
+name = "rune-companion"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "Minimal chat companion framework with memory, tasks, and Matrix connector."
+readme = "README.md"
+license = { text = "MIT" }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+indent-width = 4
+fix = true
+
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "build",
+    "dist",
+    ".local",
+    "matrix_store",
+    "memory_store",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle/pyflakes
+    "I",             # isort
+    "B",             # bugbear
+    "UP",            # pyupgrade
+    "SIM",           # simplify
+    "RUF",           # ruff-specific
+]
+ignore = [
+    "E203",          # conflicts with formatter (black/ruff-format style)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["connectors", "tasks"]

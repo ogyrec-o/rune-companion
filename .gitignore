@@ -1,0 +1,54 @@
+# .gitignore
+
+# --- secrets / local env ---
+.env
+.env.*
+!.env.example
+
+# Local python config overrides
+config_local.py
+
+# --- local runtime data ---
+.local/
+matrix_store/
+memory_store/
+**/session.json
+
+# Databases / histories / caches
+*.sqlite
+*.sqlite3
+*.db
+*.jsonl
+*.log
+
+# Coverage / reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Voice samples (usually personal / copyrighted)
+voice_sample.wav
+*.wav
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor junk
+.DS_Store
+.idea/
+.vscode/
+
+# pyenv / local python version pin
+.python-version
