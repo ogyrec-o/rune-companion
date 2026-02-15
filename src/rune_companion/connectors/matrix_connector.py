@@ -1,4 +1,4 @@
-# connectors/matrix_connector.py
+# src/rune_companion/connectors/matrix_connector.py
 
 from __future__ import annotations
 
@@ -12,14 +12,14 @@ from typing import Optional, Set
 
 from nio import MatrixRoom, RoomMessageText, exceptions
 
-from commands import registry as command_registry
-from config import get_settings
-from connectors.matrix_client import create_matrix_client
-from connectors.matrix_e2ee import setup_self_verification
-from core_chat import generate_reply_text
-from state import AppState
-from tasks.task_models import Task, TaskStatus
-from tasks.task_scheduler import DispatchPhase, TaskDispatch, run_task_scheduler
+from ..cli.commands import registry as command_registry
+from ..config import get_settings
+from .matrix_client import create_matrix_client
+from .matrix_e2ee import setup_self_verification
+from ..core.chat import generate_reply_text
+from ..core.state import AppState
+from ..tasks.task_models import Task, TaskStatus
+from ..tasks.task_scheduler import DispatchPhase, TaskDispatch, run_task_scheduler
 
 logger = logging.getLogger(__name__)
 

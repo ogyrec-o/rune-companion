@@ -10,16 +10,16 @@ from typing import Any
 
 import openai
 
-from config import get_settings
-from llm_client import stream_chat_chunks
-from memory_api import (
+from ..config import get_settings
+from ..llm.client import stream_chat_chunks
+from .api import (
     remember_global_fact,
     remember_relationship_fact,
     remember_room_fact,
     remember_user_fact,
 )
-from memory_store import MemoryItem
-from state import AppState
+from .store import MemoryItem
+from ..core.state import AppState
 
 logger = logging.getLogger(__name__)
 

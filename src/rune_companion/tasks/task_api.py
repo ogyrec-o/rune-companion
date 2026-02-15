@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 
-from state import AppState
+from ..core.state import AppState
 
 from .task_store import TaskStore
 
@@ -19,7 +19,7 @@ def _default_tasks_db_path() -> str:
     Prefers Settings (get_settings). Falls back to legacy config.MEMORY_DB_PATH if needed.
     """
     try:
-        from config import get_settings  # type: ignore
+        from ..config import get_settings  # type: ignore
 
         s = get_settings()
         mem_db = getattr(s, "memory_db_path", None)
@@ -29,7 +29,7 @@ def _default_tasks_db_path() -> str:
         pass
 
     try:
-        from config import MEMORY_DB_PATH  # type: ignore
+        from ..config import MEMORY_DB_PATH  # type: ignore
 
         return str(MEMORY_DB_PATH.with_name("tasks.sqlite3"))
     except Exception:

@@ -1,18 +1,20 @@
-# main.py
+# src/rune_companion/cli/main.py
 
 from __future__ import annotations
 
 import logging
 import signal
 import threading
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from config import get_settings
-from connectors.console_connector import run_console_loop
-from connectors.matrix_connector import MatrixBackgroundRunner, start_matrix_in_background
-from state import create_initial_state, load_dialog_histories, save_dialog_histories
+from ..config import get_settings
+from ..connectors.console_connector import run_console_loop
+from ..core.state import create_initial_state, load_dialog_histories, save_dialog_histories
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from ..connectors.matrix_connector import MatrixBackgroundRunner
 
 def _configure_logging(level: str) -> None:
     lvl = getattr(logging, str(level).upper(), logging.INFO)
@@ -71,8 +73,9 @@ def main() -> None:
         except Exception:
             logger.exception("Failed to load dialog histories.")
 
-    matrix_runner: Optional[MatrixBackgroundRunner] = None
+    matrix_runner: "MatrixBackgroundRunner | None" = None
     if settings.matrix_enabled:
+        from ..connectors.matrix_connector import start_matrix_in_background
         matrix_runner = start_matrix_in_background(state)
 
     # Use an Event so main can wait without a busy while-loop.

@@ -8,10 +8,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List
 
-from config import get_settings
-from memory_store import MemoryStore
-from tasks.task_store import TaskStore
-from tts_engine import TTSEngine
+from ..config import get_settings
+from ..memory.store import MemoryStore
+from ..tasks.task_store import TaskStore
+from ..tts.engine import TTSEngine
 
 
 @dataclass

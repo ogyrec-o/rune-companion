@@ -1,4 +1,4 @@
-# core_chat.py
+# src/rune_companion/core/chat.py
 
 from __future__ import annotations
 
@@ -9,20 +9,20 @@ from typing import Any, Iterable
 
 import openai
 
-from config import get_settings
-from llm_client import stream_chat_chunks, friendly_llm_error_message
-from memory_api import (
+from ..config import get_settings
+from ..llm.client import stream_chat_chunks, friendly_llm_error_message
+from ..memory.api import (
     get_global_memories,
     get_global_userstories,
     get_top_relationship_memories,
     get_top_room_memories,
     get_top_user_memories,
 )
-from memory_controller import apply_memory_plan, run_memory_controller
-from memory_summarizer import summarize_dialog_chunk
-from persona import get_system_prompt
-from state import AppState
-from tasks.task_api import maybe_handle_reply
+from ..memory.controller import apply_memory_plan, run_memory_controller
+from ..memory.summarizer import summarize_dialog_chunk
+from .persona import get_system_prompt
+from .state import AppState
+from ..tasks.task_api import maybe_handle_reply
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +182,7 @@ def _maybe_run_episode_summary(
         return
 
     # Local imports to avoid cycles
-    from memory_api import remember_relationship_fact, remember_room_fact
+    from ..memory.api import remember_relationship_fact, remember_room_fact
 
     tags = ["episode", "summary"]
 

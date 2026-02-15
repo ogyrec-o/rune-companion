@@ -1,4 +1,4 @@
-# connectors/matrix_client.py
+# src/rune_companion/connectors/matrix_client.py
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 
 from nio import AsyncClient, AsyncClientConfig, LoginResponse
 
-from config import get_settings
+from ..config import get_settings
 
 logger = logging.getLogger(__name__)
 
