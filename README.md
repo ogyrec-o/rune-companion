@@ -1,4 +1,4 @@
-# README.md
+# README.md (todo)
 
 # Rune Companion
 
@@ -9,8 +9,6 @@ A small, publishable chat companion framework with:
 - a task system (SQLite) with reminders / ask-and-reply workflows,
 - connectors: console REPL + Matrix (optional, E2EE supported when available).
 
-This repo is designed to be safe to publish: no secrets and no user data are committed.
-
 ## Quickstart
 
 ### 1) Create a venv and install deps
@@ -18,4 +16,4 @@ This repo is designed to be safe to publish: no secrets and no user data are com
 python -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install -r requirements.txt
+pip install -r requirements.txt // todo
