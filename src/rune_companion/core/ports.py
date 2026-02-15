@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+"""
+Ports (interfaces) used by the core.
+
+The core depends on Protocols instead of concrete implementations.
+This keeps connectors/storage/LLM providers swappable and makes testing easier.
+"""
+
 from typing import Any, Awaitable, Iterable, Protocol
 
 ChatMessage = dict[str, str]
+# OpenAI-style chat messages: {"role": "...", "content": "..."}.
 
 
 class LLMClient(Protocol):
+    """Streaming chat completion client (OpenAI/OpenRouter-compatible)."""
     def stream_chat(self, messages: list[ChatMessage], system_prompt: str) -> Iterable[str]: ...
 
 

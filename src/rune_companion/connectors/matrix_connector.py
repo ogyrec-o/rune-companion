@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+"""
+Matrix connector.
+
+Runs an async Matrix bot in a dedicated background thread (separate event loop),
+so it can coexist with the blocking console REPL.
+
+Also wires the task scheduler with an OutboundMessenger implementation that sends Matrix messages.
+"""
+
 import asyncio
 import contextlib
 import logging
@@ -142,16 +151,17 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
     lock = getattr(state, "lock", None)
 
     async def message_callback(room: MatrixRoom, event: RoomMessageText) -> None:
-        # 1) Ignore messages sent before bot startup.
+        # Avoid replying to backlog on startup (prevents accidental floods / loops).
+        # Ignore messages sent before bot startup.
         ts = getattr(event, "server_timestamp", None)
         if ts is not None and ts <= startup_ts:
             return
 
-        # 2) Ignore own messages.
+        # Ignore own messages.
         if event.sender == client.user_id:
             return
 
-        # 3) Room allowlist filter.
+        # Room allowlist filter.
         if allowed_rooms is not None and room.room_id not in allowed_rooms:
             return
 

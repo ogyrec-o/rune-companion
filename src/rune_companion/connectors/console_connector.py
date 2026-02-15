@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+"""
+Console connector.
+
+A blocking terminal REPL that:
+- handles slash commands,
+- streams assistant text chunks to stdout,
+- optionally speaks completed sentences via TTS while streaming.
+"""
+
 import logging
 import re
 import sys
@@ -15,6 +24,7 @@ from ..llm.client import friendly_llm_error_message
 
 logger = logging.getLogger(__name__)
 
+# Simple heuristic sentence boundary; good enough for streaming TTS.
 SENTENCE_REGEX = re.compile(r"[\.!\?…]")
 
 

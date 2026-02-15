@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+"""
+Episodic summarizer.
+
+Produces short third-person notes that can be stored as long-term memory items.
+Used to keep context compact when dialog history grows.
+"""
+
 import logging
 from typing import Any
 
@@ -48,6 +55,7 @@ def summarize_dialog_chunk(state: AppState, dialog_messages: list[dict[str, Any]
     for m in dialog_messages:
         role = str(m.get("role", "user"))
         content = str(m.get("content", ""))
+        # Guardrail: keep summarizer prompt bounded even if a single message is huge.
         if len(content) > max_msg_chars:
             content = content[:max_msg_chars] + "…"
         trimmed.append({"role": role, "content": content})

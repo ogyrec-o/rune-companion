@@ -2,6 +2,16 @@
 
 from __future__ import annotations
 
+"""
+Memory/task planner.
+
+This module asks an LLM to propose a JSON "plan" of memory operations (add/update/delete)
+and optional task creation. The plan is applied defensively:
+- we validate evidence against recent user messages,
+- we ignore malformed or unsupported ops,
+- failures do not crash the main chat loop.
+"""
+
 import json
 import logging
 import time
@@ -37,7 +47,7 @@ Any new fact must be supported by a direct user quote from the provided recent m
 Evidence field (required):
 - For "add": evidence is REQUIRED.
 - For "update": evidence is REQUIRED if the "text" field is changed.
-Evidence must be a direct substring literally present in the provided history.
+Evidence must be a direct substring from the provided history (case/whitespace-insensitive match).
 
 Output format:
 Return STRICT JSON only. No extra text. No Markdown.
@@ -161,6 +171,7 @@ def run_memory_controller(
     if not isinstance(plan, dict):
         return None
 
+    # Internal field used only for evidence validation during apply_memory_plan().
     plan["_history_text"] = history_text
     logger.debug("Memory controller plan ops=%s", len(plan.get("ops", []) or []))
     return plan
