@@ -12,6 +12,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Iterable
 from typing import Any, Literal, Protocol, TypedDict
 
+from src.rune_companion.memory.store import FactItem
+
 ChatRole = Literal["system", "user", "assistant"]
 
 
@@ -67,10 +69,13 @@ class MemoryRepo(Protocol):
     def query_memory(
         self,
         *,
-        subject_type: str,
-        subject_id: str,
-        limit: int,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+        min_importance: float = 0.0,
+        limit: int = 20,
         tag: str | None = None,
+        person_ref: str | None = None,
+        touch: bool = False,
     ) -> list[Any]: ...
 
     def update_memory(
@@ -85,6 +90,74 @@ class MemoryRepo(Protocol):
 
     def delete_memory(self, mem_id: int) -> None: ...
     def count_memories(self) -> int: ...
+    def upsert_fact(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        key: str,
+        value: Any,
+        tags: list[str] | None = None,
+        confidence: float = 0.8,
+        source: str = "auto",
+        evidence: str = "",
+        person_ref: str | None = None,
+        decay_days: float | None = None,
+        pinned: int | None = None,
+    ) -> int: ...
+
+    def add_fact_value(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        key: str,
+        value: str,
+        tags: list[str] | None = None,
+        confidence: float = 0.75,
+        source: str = "auto",
+        evidence: str = "",
+        person_ref: str | None = None,
+    ) -> int: ...
+
+    def remove_fact_value(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        key: str,
+        value: str,
+        source: str = "auto",
+        evidence: str = "",
+    ) -> None: ...
+
+    def delete_fact(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        key: str,
+    ) -> None: ...
+
+    def get_fact(
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        key: str,
+    ) -> FactItem | None: ...
+
+    def query_facts(
+        self,
+        *,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+        min_confidence: float = 0.0,
+        limit: int = 30,
+        key_prefix: str | None = None,
+        person_ref: str | None = None,
+        touch: bool = False,
+    ) -> list[FactItem]: ...
 
 
 class TaskRepo(Protocol):
