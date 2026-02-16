@@ -1,7 +1,5 @@
 # src/rune_companion/cli/main.py
 
-from __future__ import annotations
-
 """
 CLI entrypoint.
 
@@ -10,14 +8,16 @@ Initializes logging, builds AppState, then starts connectors:
 - Matrix connector in a background thread (optional).
 """
 
+from __future__ import annotations
+
 import logging
 import signal
 import threading
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
+from ..cli.bootstrap import create_initial_state, load_dialog_histories, save_dialog_histories
 from ..config import get_settings
 from ..connectors.console_connector import run_console_loop
-from ..cli.bootstrap import create_initial_state, load_dialog_histories, save_dialog_histories
 from ..logging_setup import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -71,20 +71,16 @@ def main() -> None:
     # IMPORTANT: reuse same settings object
     state = create_initial_state(settings=settings)
 
-    # Shared state may be accessed from multiple threads (console + Matrix).
-    # A single lock keeps state mutations serialized (good enough for MVP).
-    if not hasattr(state, "lock"):
-        state.lock = threading.RLock()
-
     if getattr(state, "save_history", False):
         try:
             state.dialog_histories = load_dialog_histories(state)
         except Exception:
             logger.exception("Failed to load dialog histories.")
 
-    matrix_runner: "MatrixBackgroundRunner | None" = None
+    matrix_runner: MatrixBackgroundRunner | None = None
     if settings.matrix_enabled:
         from ..connectors.matrix_connector import start_matrix_in_background
+
         matrix_runner = start_matrix_in_background(state)
 
     # Use an Event so main can wait without a busy while-loop.
@@ -106,7 +102,9 @@ def main() -> None:
             run_console_loop(state)
             stop_main.set()
         else:
-            logger.info("Console disabled. Running background connectors only. Press Ctrl+C to stop.")
+            logger.info(
+                "Console disabled. Running background connectors only. Press Ctrl+C to stop."
+            )
             stop_main.wait()
 
     finally:

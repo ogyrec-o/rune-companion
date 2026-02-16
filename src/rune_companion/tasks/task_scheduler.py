@@ -1,7 +1,5 @@
 # src/rune_companion/tasks/task_scheduler.py
 
-from __future__ import annotations
-
 """
 Task scheduler.
 
@@ -14,11 +12,13 @@ A small polling loop that:
 Transport routing (room selection, formatting) belongs to the connector, not the scheduler.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from ..core.ports import OutboundMessenger, TaskRepo
 from .task_models import Task, TaskStatus
@@ -26,7 +26,7 @@ from .task_models import Task, TaskStatus
 logger = logging.getLogger(__name__)
 
 
-class DispatchPhase(str, Enum):
+class DispatchPhase(StrEnum):
     ASK = "ask"
     REPLY_BACK = "reply_back"
     MESSAGE = "message"
@@ -132,12 +132,12 @@ def build_dispatch(task: Task) -> TaskDispatch | None:
 
 
 async def run_task_scheduler(
-        task_store: TaskRepo,
-        messenger: OutboundMessenger,
-        *,
-        interval_seconds: float = 15.0,
-        retry_delay_seconds: float = 60.0,
-        batch_limit: int = 32,
+    task_store: TaskRepo,
+    messenger: OutboundMessenger,
+    *,
+    interval_seconds: float = 15.0,
+    retry_delay_seconds: float = 60.0,
+    batch_limit: int = 32,
 ) -> None:
     """
     Simple polling scheduler.
@@ -173,7 +173,7 @@ async def run_task_scheduler(
             # We expect Task objects from TaskStore; keep it defensive.
             task = task_any
             try:
-                task_id = int(getattr(task, "id"))
+                task_id = int(task.id)
             except Exception:
                 continue
 
@@ -212,7 +212,9 @@ async def run_task_scheduler(
                     logger.info("Task %s -> done", task_id)
 
             except Exception:
-                logger.exception("dispatch send failed task_id=%s phase=%s", task_id, dispatch.phase.value)
+                logger.exception(
+                    "dispatch send failed task_id=%s phase=%s", task_id, dispatch.phase.value
+                )
 
                 # Reschedule with a backoff.
                 due_at = time.time() + retry_s
@@ -220,9 +222,13 @@ async def run_task_scheduler(
                 try:
                     # If it was phase-2, preserve ANSWER_RECEIVED so we retry phase-2 later.
                     if dispatch.phase == DispatchPhase.REPLY_BACK:
-                        task_store.update_task_fields(task_id, status=TaskStatus.ANSWER_RECEIVED, due_at=due_at)
+                        task_store.update_task_fields(
+                            task_id, status=TaskStatus.ANSWER_RECEIVED, due_at=due_at
+                        )
                     else:
-                        task_store.update_task_fields(task_id, status=TaskStatus.PENDING, due_at=due_at)
+                        task_store.update_task_fields(
+                            task_id, status=TaskStatus.PENDING, due_at=due_at
+                        )
                 except Exception:
                     logger.exception("update_task_fields(backoff) failed task_id=%s", task_id)
 

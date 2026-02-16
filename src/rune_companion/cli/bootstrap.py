@@ -1,7 +1,5 @@
 # src/rune_companion/cli/bootstrap.py
 
-from __future__ import annotations
-
 """
 CLI bootstrap helpers.
 
@@ -12,14 +10,17 @@ This module is the "composition root":
 - persists per-dialog histories as JSON (optional).
 """
 
+from __future__ import annotations
+
 import contextlib
 import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List
+from typing import Literal, cast
 
 from ..config import get_settings
+from ..core.ports import ChatMessage
 from ..core.state import AppState
 from ..llm.client import OpenRouterLLMClient
 from ..memory.store import MemoryStore
@@ -28,12 +29,14 @@ from ..tts.engine import TTSEngine
 
 logger = logging.getLogger(__name__)
 
+
 def _ensure_local_dirs(settings) -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.matrix_store_path.mkdir(parents=True, exist_ok=True)
     settings.memory_db_path.parent.mkdir(parents=True, exist_ok=True)
     settings.tasks_db_path.parent.mkdir(parents=True, exist_ok=True)
     settings.dialog_history_path.parent.mkdir(parents=True, exist_ok=True)
+
 
 def create_initial_state(*, settings=None) -> AppState:
     """
@@ -58,24 +61,34 @@ def create_initial_state(*, settings=None) -> AppState:
     )
     return state
 
-def load_dialog_histories(state: AppState) -> Dict[str, List[dict[str, str]]]:
+
+def load_dialog_histories(state: AppState) -> dict[str, list[ChatMessage]]:
     if not state.save_history:
         return {}
-    path: Path = state.settings.dialog_history_path  # type: ignore[attr-defined]
+    raw_path = getattr(state.settings, "dialog_history_path", None)
+    if not raw_path:
+        return {}
+    path = Path(raw_path)
     if not path.exists():
         return {}
     try:
         data = json.loads(path.read_text("utf-8"))
         if not isinstance(data, dict):
             return {}
-        out: Dict[str, List[dict[str, str]]] = {}
+        out: dict[str, list[ChatMessage]] = {}
         for key, msgs in data.items():
             if not isinstance(key, str) or not isinstance(msgs, list):
                 continue
-            clean = []
+            clean: list[ChatMessage] = []
             for m in msgs:
                 if isinstance(m, dict):
-                    clean.append({"role": str(m.get("role", "user")), "content": str(m.get("content", ""))})
+                    role_any = m.get("role", "user")
+                    role_s = role_any if isinstance(role_any, str) else "user"
+                    if role_s not in ("system", "user", "assistant"):
+                        role_s = "user"
+                    role = cast(Literal["system", "user", "assistant"], role_s)
+
+                    clean.append({"role": role, "content": str(m.get("content", ""))})
             if clean:
                 out[key] = clean
         logger.info("Loaded dialog histories: %d dialogs from %s", len(out), path)
@@ -84,10 +97,14 @@ def load_dialog_histories(state: AppState) -> Dict[str, List[dict[str, str]]]:
         logger.exception("Failed to load dialog histories from %s", path)
         return {}
 
+
 def save_dialog_histories(state: AppState) -> None:
     if not state.save_history:
         return
-    path: Path = state.settings.dialog_history_path  # type: ignore[attr-defined]
+    raw_path = getattr(state.settings, "dialog_history_path", None)
+    if not raw_path:
+        return
+    path = Path(raw_path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")

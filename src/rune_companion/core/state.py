@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from threading import RLock
+from typing import Any
 
 from .ports import ChatMessage, LLMClient, MemoryRepo, TaskRepo, TTSEngine
 
 
-@dataclass
+@dataclass(slots=True)
 class AppState:
     settings: Any
 
@@ -20,9 +21,11 @@ class AppState:
     tts_enabled: bool
     save_history: bool
 
-    conversation: List[ChatMessage] = field(default_factory=list)
-    dialog_histories: Dict[str, List[ChatMessage]] = field(default_factory=dict)
+    # Used by connectors to serialize access when running multi-threaded (console + Matrix).
+    lock: RLock = field(default_factory=RLock)
 
-    # (kept in state for potential future use; currently chat.py uses module-level dicts)
-    episode_counters: Dict[str, int] = field(default_factory=dict)
-    memory_ctrl_counters: Dict[str, int] = field(default_factory=dict)
+    conversation: list[ChatMessage] = field(default_factory=list)
+    dialog_histories: dict[str, list[ChatMessage]] = field(default_factory=dict)
+
+    episode_counters: dict[str, int] = field(default_factory=dict)
+    memory_ctrl_counters: dict[str, int] = field(default_factory=dict)

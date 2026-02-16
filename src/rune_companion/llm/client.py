@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any, cast
 
 import openai
 from openai import OpenAI
@@ -13,6 +14,30 @@ from openai import OpenAI
 from ..core.ports import ChatMessage
 
 logger = logging.getLogger(__name__)
+
+
+class LLMError(RuntimeError):
+    pass
+
+
+class LLMConfigError(LLMError):
+    pass
+
+
+class LLMAuthError(LLMError):
+    pass
+
+
+class LLMRateLimitError(LLMError):
+    pass
+
+
+class LLMNetworkError(LLMError):
+    pass
+
+
+class LLMModelError(LLMError):
+    pass
 
 
 def _env_float(name: str, default: float) -> float:
@@ -78,7 +103,7 @@ def _make_timeout_obj(connect_s: float, read_s: float) -> Any:
     If not, fall back to a plain float (some SDK versions accept it).
     """
     try:
-        import httpx  # type: ignore
+        import httpx
 
         return httpx.Timeout(connect=connect_s, read=read_s, write=10.0, pool=connect_s)
     except Exception:
@@ -88,11 +113,17 @@ def _make_timeout_obj(connect_s: float, read_s: float) -> Any:
 def friendly_llm_error_message(err: Exception) -> str:
     msg = str(err).strip() or "LLM error."
     if "LLM API key is not set" in msg or "Missing OpenRouter API key" in msg:
-        return "LLM is not configured (missing API key). Set RUNE_OPENROUTER_API_KEY in .env (see .env.example)."
+        return (
+            "LLM is not configured (missing API key). Set RUNE_OPENROUTER_API_KEY in .env "
+            "(see .env.example)."
+        )
     if "LLM model list is empty" in msg:
         return "LLM is not configured (no models). Set RUNE_LLM_MODELS in .env (see .env.example)."
     if "LLM base URL is not set" in msg:
-        return "LLM is not configured (missing base URL). Set RUNE_OPENROUTER_BASE_URL in .env (see .env.example)."
+        return (
+            "LLM is not configured (missing base URL). Set RUNE_OPENROUTER_BASE_URL in .env "
+            "(see .env.example)."
+        )
     return msg
 
 
@@ -106,19 +137,19 @@ def _close_stream(stream: Any) -> None:
 
 
 def _create_stream(
-        client: OpenAI,
-        *,
-        model: str,
-        headers: Dict[str, str],
-        messages: list[dict[str, str]],
-        timeout: Any,
+    client: OpenAI,
+    *,
+    model: str,
+    headers: dict[str, str],
+    messages: list[ChatMessage],
+    timeout: Any,
 ) -> Any:
     try:
         return client.chat.completions.create(
             model=model,
             stream=True,
             extra_headers=headers or None,
-            messages=messages,
+            messages=cast(Any, messages),
             timeout=timeout,
         )
     except TypeError:
@@ -126,7 +157,7 @@ def _create_stream(
             model=model,
             stream=True,
             extra_headers=headers or None,
-            messages=messages,
+            messages=cast(Any, messages),
         )
 
 
@@ -152,9 +183,13 @@ class OpenRouterLLMClient:
         base_url = getattr(self._settings, "openrouter_base_url", "") or ""
 
         if not api_key or not str(api_key).strip():
-            raise RuntimeError("LLM API key is not set. Set RUNE_OPENROUTER_API_KEY in your .env.")
+            raise LLMConfigError(
+                "LLM API key is not set. Set RUNE_OPENROUTER_API_KEY in your .env."
+            )
         if not base_url.strip():
-            raise RuntimeError("LLM base URL is not set. Set RUNE_OPENROUTER_BASE_URL in your .env.")
+            raise LLMConfigError(
+                "LLM base URL is not set. Set RUNE_OPENROUTER_BASE_URL in your .env."
+            )
 
         t = _timeouts_from_env()
         timeout_obj = _make_timeout_obj(connect_s=t["connect"], read_s=t["read"])
@@ -175,11 +210,11 @@ class OpenRouterLLMClient:
         return self._client
 
     def stream_chat(self, messages: list[ChatMessage], system_prompt: str) -> Iterable[str]:
-        models: List[str] = list(getattr(self._settings, "llm_models", []) or [])
-        headers: Dict[str, str] = dict(getattr(self._settings, "extra_headers", {}) or {})
+        models: list[str] = list(getattr(self._settings, "llm_models", []) or [])
+        headers: dict[str, str] = dict(getattr(self._settings, "extra_headers", {}) or {})
 
         if not models:
-            raise RuntimeError("LLM model list is empty. Set RUNE_LLM_MODELS in your .env.")
+            raise LLMConfigError("LLM model list is empty. Set RUNE_LLM_MODELS in your .env.")
 
         client = self._get_client()
 
@@ -187,7 +222,7 @@ class OpenRouterLLMClient:
         first_token_timeout = float(t["first_token"])
         timeout_obj = _make_timeout_obj(connect_s=t["connect"], read_s=t["read"])
 
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         now = time.monotonic()
 
         for model in models:
@@ -211,12 +246,14 @@ class OpenRouterLLMClient:
             stream = None
             used_any = False
 
+            all_msgs: list[ChatMessage] = [{"role": "system", "content": system_prompt}, *messages]
+
             try:
                 stream = _create_stream(
                     client,
                     model=model,
                     headers=headers,
-                    messages=[{"role": "system", "content": system_prompt}, *messages],
+                    messages=cast(Any, all_msgs),
                     timeout=timeout_obj,
                 )
 
@@ -235,7 +272,11 @@ class OpenRouterLLMClient:
 
                     if content:
                         if not used_any:
-                            logger.info("LLM: first token from model=%s (%.2fs)", model, time.monotonic() - t0)
+                            logger.info(
+                                "LLM: first token from model=%s (%.2fs)",
+                                model,
+                                time.monotonic() - t0,
+                            )
                         used_any = True
                         yield content
 
@@ -276,9 +317,11 @@ class OpenRouterLLMClient:
 
         if last_error is not None:
             if _is_rate_limit_error(last_error):
-                raise RuntimeError("LLM is rate-limited. Try again later.") from last_error
+                raise LLMRateLimitError("LLM is rate-limited. Try again later.") from last_error
             if _is_connection_error(last_error):
-                raise RuntimeError("LLM network/timeout error. Try again later or change models.") from last_error
-            raise RuntimeError("All LLM models failed.") from last_error
+                raise LLMNetworkError(
+                    "LLM network/timeout error. Try again later or change models."
+                ) from last_error
+            raise LLMModelError("All LLM models failed.") from last_error
 
-        raise RuntimeError("All LLM models failed.")
+        raise LLMModelError("All LLM models failed.")

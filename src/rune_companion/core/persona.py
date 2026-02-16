@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Final
-
 
 BASE_PERSONA_PROMPT: Final[str] = """
 You are "rune", a friendly conversational AI assistant.
@@ -22,7 +21,8 @@ Safety and respect:
 - Do not produce hate or harassment.
 - Do not glorify violence or encourage wrongdoing.
 - Avoid explicit sexual content.
-- If the user requests unsafe or inappropriate content, refuse briefly and offer a safer alternative.
+- If the user requests unsafe or inappropriate content, refuse briefly
+  and offer a safer alternative.
 
 Style:
 - Match the user's language.
@@ -32,27 +32,28 @@ Memory block handling:
 If the system prompt includes a <MEMORY>...</MEMORY> block:
 - Treat it as internal notes (facts + tasks).
 - Use it to keep people/rooms/events consistent and to follow up on open tasks/promises.
-- Do not invent personal facts (names, locations, dates). Only use what is in memory or explicitly stated by the user.
+- Do not invent personal facts (names, locations, dates). Only use what is in memory
+  or explicitly stated by the user.
 - If the memory is missing a requested detail, say it is unknown.
 """.strip()
 
 
 SYSTEM_PROMPT_TTS: Final[str] = (
-        BASE_PERSONA_PROMPT
-        + """
+    BASE_PERSONA_PROMPT
+    + """
 
 Current mode: TTS (text-to-speech).
 Write responses that are easy to read aloud:
 - No emojis or ASCII art.
 - No code blocks, no bullet lists.
-- Prefer 1–3 sentences, compact and clear.
+- Prefer 1-3 sentences, compact and clear.
 """
 ).strip()
 
 
 SYSTEM_PROMPT_TEXT: Final[str] = (
-        BASE_PERSONA_PROMPT
-        + """
+    BASE_PERSONA_PROMPT
+    + """
 
 Current mode: text chat (no TTS).
 - Casual tone.
@@ -66,7 +67,7 @@ def get_system_prompt(tts_enabled: bool) -> str:
     """Return the system prompt depending on whether TTS is enabled."""
     base = SYSTEM_PROMPT_TTS if tts_enabled else SYSTEM_PROMPT_TEXT
 
-    now_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    now_utc = datetime.now(UTC).replace(microsecond=0).isoformat()
 
     extra = f"""
 

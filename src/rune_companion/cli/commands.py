@@ -2,34 +2,41 @@
 
 from __future__ import annotations
 
-import logging
+import contextlib
 import inspect
-
+import logging
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable, Dict, List
+from typing import cast
 
-from ..memory.api import get_top_room_memories, get_top_user_memories
 from ..core.state import AppState
+from ..memory.api import get_top_room_memories, get_top_user_memories
 from ..tts.engine import TTSEngine  # concrete engine (not the Protocol)
 
 CommandEmitter = Callable[[str], None]
-CommandHandler = Callable[[AppState, List[str], str | None, str | None, CommandEmitter | None], str]
+CommandHandler4 = Callable[[AppState, list[str], str | None, str | None], str]
+CommandHandler5 = Callable[
+    [AppState, list[str], str | None, str | None, CommandEmitter | None],
+    str
+]
+CommandHandler = CommandHandler4 | CommandHandler5
 
 logger = logging.getLogger(__name__)
+
 
 class CommandRegistry:
     """Simple slash-command registry used by connectors (/help, /tts, ...)."""
 
     def __init__(self) -> None:
-        self._handlers: Dict[str, CommandHandler] = {}
-        self._help: Dict[str, str] = {}
+        self._handlers: dict[str, CommandHandler] = {}
+        self._help: dict[str, str] = {}
 
     def register(
-            self,
-            name: str,
-            handler: CommandHandler,
-            help_text: str,
-            aliases: List[str] | None = None,
+        self,
+        name: str,
+        handler: CommandHandler,
+        help_text: str,
+        aliases: list[str] | None = None,
     ) -> None:
         aliases = aliases or []
         key = name.lower()
@@ -39,12 +46,12 @@ class CommandRegistry:
             self._handlers[alias.lower()] = handler
 
     def handle(
-            self,
-            state: AppState,
-            line: str,
-            user_id: str | None = None,
-            room_id: str | None = None,
-            emit: CommandEmitter | None = None,
+        self,
+        state: AppState,
+        line: str,
+        user_id: str | None = None,
+        room_id: str | None = None,
+        emit: CommandEmitter | None = None,
     ) -> str | None:
         """
         Handle a string like "/command args".
@@ -70,10 +77,11 @@ class CommandRegistry:
             nparams = 5
 
         if nparams >= 5:
-            return handler(state, args, user_id, room_id, emit)
+            h5 = cast(CommandHandler5, handler)
+            return h5(state, args, user_id, room_id, emit)
 
-        # Backwards-compatible: old handlers without `emit`
-        return handler(state, args, user_id, room_id)
+        h4 = cast(CommandHandler4, handler)
+        return h4(state, args, user_id, room_id)
 
     def build_help(self) -> str:
         lines = ["Available commands:"]
@@ -90,21 +98,21 @@ def _ts_local() -> str:
 
 
 def cmd_help(
-        state: AppState,
-        args: List[str],
-        user_id: str | None,
-        room_id: str | None,
-        emit: CommandEmitter | None = None,
+    state: AppState,
+    args: list[str],
+    user_id: str | None,
+    room_id: str | None,
+    emit: CommandEmitter | None = None,
 ) -> str:
     return registry.build_help()
 
 
 def cmd_status(
-        state: AppState,
-        args: List[str],
-        user_id: str | None,
-        room_id: str | None,
-        emit: CommandEmitter | None = None,
+    state: AppState,
+    args: list[str],
+    user_id: str | None,
+    room_id: str | None,
+    emit: CommandEmitter | None = None,
 ) -> str:
     mode = "VOICE (TTS)" if state.tts_enabled else "TEXT ONLY"
     hist = "ON" if state.save_history else "OFF"
@@ -118,11 +126,11 @@ def cmd_status(
 
 
 def cmd_tts(
-        state: AppState,
-        args: List[str],
-        user_id: str | None,
-        room_id: str | None,
-        emit: CommandEmitter | None = None,
+    state: AppState,
+    args: list[str],
+    user_id: str | None,
+    room_id: str | None,
+    emit: CommandEmitter | None = None,
 ) -> str:
     """
     /tts          -> show status
@@ -139,10 +147,8 @@ def cmd_tts(
             return "TTS is already ON."
 
         if emit:
-            try:
+            with contextlib.suppress(Exception):
                 emit("[TTS] Enabling... importing deps and loading model (may take a while).")
-            except Exception:
-                pass
 
         # Do NOT duplicate the user-facing message in INFO logs (it prints into console).
         logger.debug("TTS enable requested (user_id=%s room_id=%s)", user_id, room_id)
@@ -157,17 +163,13 @@ def cmd_tts(
             return "TTS is already OFF."
 
         if emit:
-            try:
+            with contextlib.suppress(Exception):
                 emit("[TTS] Disabling...")
-            except Exception:
-                pass
 
         logger.debug("TTS disable requested (user_id=%s room_id=%s)", user_id, room_id)
 
-        try:
+        with contextlib.suppress(Exception):
             state.tts_engine.shutdown()
-        except Exception:
-            pass
 
         state.tts_engine = TTSEngine(enabled=False)
         state.tts_enabled = False
@@ -178,11 +180,11 @@ def cmd_tts(
 
 
 def cmd_mem(
-        state: AppState,
-        args: List[str],
-        user_id: str | None,
-        room_id: str | None,
-        emit: CommandEmitter | None = None,
+    state: AppState,
+    args: list[str],
+    user_id: str | None,
+    room_id: str | None,
+    emit: CommandEmitter | None = None,
 ) -> str:
     """
     /mem user  -> show memory about current user
@@ -241,4 +243,6 @@ def cmd_mem(
 registry.register("help", cmd_help, help_text="Show available commands.", aliases=["h", "?"])
 registry.register("status", cmd_status, help_text="Show current settings (mode/history/models).")
 registry.register("tts", cmd_tts, help_text="Enable/disable TTS: /tts on | /tts off.")
-registry.register("mem", cmd_mem, help_text="Memory diagnostics: /mem user | /mem room | /mem stat.")
+registry.register(
+    "mem", cmd_mem, help_text="Memory diagnostics: /mem user | /mem room | /mem stat."
+)

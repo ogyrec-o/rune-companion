@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """
     Task lifecycle status.
 
@@ -24,7 +24,7 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
     @classmethod
-    def from_db(cls, raw: str | None) -> "TaskStatus":
+    def from_db(cls, raw: str | None) -> TaskStatus:
         if not raw:
             return cls.PENDING
         try:

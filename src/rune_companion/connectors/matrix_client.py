@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -13,10 +14,10 @@ from nio import AsyncClient, AsyncClientConfig, LoginResponse
 logger = logging.getLogger(__name__)
 
 try:
-    import olm  # type: ignore  # noqa: F401
+    import olm  # noqa: F401
 
     OLM_AVAILABLE = True
-except Exception:
+except ModuleNotFoundError:
     OLM_AVAILABLE = False
 
 
@@ -44,11 +45,8 @@ def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False), "utf-8")
     os.replace(tmp, path)
-    try:
+    with contextlib.suppress(Exception):
         os.chmod(path, 0o600)
-    except Exception:
-        # Best-effort: not critical on Windows or restricted FS.
-        pass
 
 
 async def create_matrix_client(settings) -> AsyncClient | None:
@@ -109,7 +107,9 @@ async def create_matrix_client(settings) -> AsyncClient | None:
             if encryption_enabled:
                 try:
                     client.load_store()
-                    logger.info("Matrix session restored for %s (E2EE store loaded)", client.user_id)
+                    logger.info(
+                        "Matrix session restored for %s (E2EE store loaded)", client.user_id
+                    )
                 except Exception as e:
                     # We can still operate without the local crypto store, but E2EE will be limited.
                     logger.warning("Failed to load E2EE store: %r", e)

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from nio import AsyncClient, ToDeviceMessage
 from nio.events.to_device import (
@@ -26,7 +27,7 @@ def setup_self_verification(client: AsyncClient) -> None:
     - This code is for bootstrapping trust for the bot's own devices.
     - We intentionally do not implement verification flows with external users here.
     """
-    verify_peer_by_txid: Dict[str, str] = {}
+    verify_peer_by_txid: dict[str, str] = {}
 
     def _extract_sender(ev: Any) -> str | None:
         sender = getattr(ev, "sender", None)
@@ -53,7 +54,10 @@ def setup_self_verification(client: AsyncClient) -> None:
             return
 
         # Element may send verification request as UnknownToDeviceEvent.
-        if isinstance(ev, UnknownToDeviceEvent) and getattr(ev, "type", None) == "m.key.verification.request":
+        if (
+            isinstance(ev, UnknownToDeviceEvent)
+            and getattr(ev, "type", None) == "m.key.verification.request"
+        ):
             src = ev.source or {}
             content = (src.get("content", {}) or {}) if isinstance(src, dict) else {}
             txid = content.get("transaction_id")

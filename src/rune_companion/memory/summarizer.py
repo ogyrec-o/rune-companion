@@ -1,7 +1,5 @@
 # src/rune_companion/memory/summarizer.py
 
-from __future__ import annotations
-
 """
 Episodic summarizer.
 
@@ -9,9 +7,12 @@ Produces short third-person notes that can be stored as long-term memory items.
 Used to keep context compact when dialog history grows.
 """
 
-import logging
-from typing import Any
+from __future__ import annotations
 
+import logging
+from typing import Literal
+
+from ..core.ports import ChatMessage
 from ..core.state import AppState
 
 logger = logging.getLogger(__name__)
@@ -24,20 +25,20 @@ Input: a short dialog excerpt between:
 - assistant (role="assistant")
 
 Task:
-- Summarize 1–3 key topics and any stable, useful facts about the user
+- Summarize 1-3 key topics and any stable, useful facts about the user
   (goals, plans, preferences, constraints, recurring themes).
 
 Rules:
 - Write in third person ("The user ...", "They discussed ...").
 - Do not address the user directly ("you").
 - No roleplay, no emojis.
-- 1–4 sentences.
+- 1-4 sentences.
 - If there is nothing worth remembering, reply exactly:
   No significant facts.
 """.strip()
 
 
-def summarize_dialog_chunk(state: AppState, dialog_messages: list[dict[str, Any]]) -> str | None:
+def summarize_dialog_chunk(state: AppState, dialog_messages: list[ChatMessage]) -> str | None:
     """
     Compress a dialog chunk into a short text note for memory storage.
 
@@ -51,9 +52,12 @@ def summarize_dialog_chunk(state: AppState, dialog_messages: list[dict[str, Any]
     max_msg_chars = int(getattr(s, "memory_summarizer_max_msg_chars", 600))
     max_summary_chars = int(getattr(s, "memory_summarizer_max_summary_chars", 800))
 
-    trimmed: list[dict[str, str]] = []
+    trimmed: list[ChatMessage] = []
     for m in dialog_messages:
-        role = str(m.get("role", "user"))
+        role_raw = m.get("role", "user")
+        if role_raw not in ("system", "user", "assistant"):
+            role_raw = "user"
+        role: Literal["system", "user", "assistant"] = role_raw
         content = str(m.get("content", ""))
         # Guardrail: keep summarizer prompt bounded even if a single message is huge.
         if len(content) > max_msg_chars:

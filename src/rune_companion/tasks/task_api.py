@@ -11,14 +11,14 @@ logger = logging.getLogger(__name__)
 
 
 def schedule_simple_message(
-        state: AppState,
-        *,
-        description: str,
-        to_user_id: str | None,
-        room_id: str | None,
-        run_after_minutes: int = 0,
-        from_user_id: str | None = None,
-        importance: float = 0.7,
+    state: AppState,
+    *,
+    description: str,
+    to_user_id: str | None,
+    room_id: str | None,
+    run_after_minutes: int = 0,
+    from_user_id: str | None = None,
+    importance: float = 0.7,
 ) -> int:
     """
     Convenience helper: schedule a simple "send a message" task.
@@ -39,7 +39,9 @@ def schedule_simple_message(
     )
 
 
-def maybe_handle_reply(state: AppState, user_id: str | None, room_id: str | None, message_text: str) -> None:
+def maybe_handle_reply(
+    state: AppState, user_id: str | None, room_id: str | None, message_text: str
+) -> None:
     """
     Compatibility helper (if some connector still calls it).
     NOTE: core/chat.py уже делает capture reply сам.

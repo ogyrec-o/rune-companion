@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .task_models import Task, TaskStatus
 
@@ -51,10 +53,8 @@ class TaskStore:
 
     @staticmethod
     def _configure_conn(conn: sqlite3.Connection) -> None:
-        try:
+        with contextlib.suppress(Exception):
             conn.execute("PRAGMA journal_mode=WAL")
-        except Exception:
-            pass
 
     def _ensure_schema(self) -> None:
         conn = self._get_conn()
@@ -64,25 +64,21 @@ class TaskStore:
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS tasks (
-                                                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                                     status TEXT NOT NULL DEFAULT 'pending',
-                                                     created_at REAL NOT NULL,
-                                                     updated_at REAL NOT NULL,
-                                                     due_at REAL,
-
-                                                     kind TEXT NOT NULL,
-                                                     description TEXT NOT NULL,
-
-                                                     from_user_id TEXT,
-                                                     to_user_id TEXT,
-                                                     reply_to_user_id TEXT,
-                                                     room_id TEXT,
-
-                                                     importance REAL NOT NULL DEFAULT 0.7,
-                                                     meta TEXT NOT NULL DEFAULT '{}',
-
-                                                     question_text TEXT,
-                                                     answer_text TEXT
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    due_at REAL,
+                    kind TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    from_user_id TEXT,
+                    to_user_id TEXT,
+                    reply_to_user_id TEXT,
+                    room_id TEXT,
+                    importance REAL NOT NULL DEFAULT 0.7,
+                    meta TEXT NOT NULL DEFAULT '{}',
+                    question_text TEXT,
+                    answer_text TEXT
                 )
                 """
             )
@@ -113,18 +109,12 @@ class TaskStore:
             add_col("question_text", "TEXT")
             add_col("answer_text", "TEXT")
 
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tasks_due_status "
-                "ON tasks(status, due_at)"
-            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_tasks_due_status ON tasks(status, due_at)")
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_tasks_participants "
                 "ON tasks(to_user_id, from_user_id, reply_to_user_id)"
             )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tasks_room "
-                "ON tasks(room_id)"
-            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_tasks_room ON tasks(room_id)")
 
             conn.commit()
         finally:
@@ -182,20 +172,20 @@ class TaskStore:
             conn.close()
 
     def add_task(
-            self,
-            *,
-            kind: str,
-            description: str,
-            from_user_id: str | None = None,
-            to_user_id: str | None = None,
-            reply_to_user_id: str | None = None,
-            room_id: str | None = None,
-            due_at: float | None = None,
-            importance: float = 0.7,
-            meta: dict[str, Any] | None = None,
-            status: TaskStatus = TaskStatus.PENDING,
-            question_text: str | None = None,
-            answer_text: str | None = None,
+        self,
+        *,
+        kind: str,
+        description: str,
+        from_user_id: str | None = None,
+        to_user_id: str | None = None,
+        reply_to_user_id: str | None = None,
+        room_id: str | None = None,
+        due_at: float | None = None,
+        importance: float = 0.7,
+        meta: dict[str, Any] | None = None,
+        status: TaskStatus = TaskStatus.PENDING,
+        question_text: str | None = None,
+        answer_text: str | None = None,
     ) -> int:
         if not kind or not kind.strip():
             raise ValueError("kind is required")
@@ -236,7 +226,10 @@ class TaskStore:
                 ),
             )
             conn.commit()
-            task_id = int(cur.lastrowid)
+            rowid = cur.lastrowid
+            if rowid is None:
+                raise RuntimeError("SQLite did not return lastrowid for memories insert")
+            task_id = int(rowid)
             logger.debug(
                 "Task added id=%s kind=%s status=%s due_at=%s",
                 task_id,
@@ -324,14 +317,14 @@ class TaskStore:
             conn.close()
 
     def update_task_fields(
-            self,
-            task_id: int,
-            *,
-            status: TaskStatus | None = None,
-            due_at: float | None = None,
-            meta: dict[str, Any] | None = None,
-            question_text: str | None = None,
-            answer_text: str | None = None,
+        self,
+        task_id: int,
+        *,
+        status: TaskStatus | None = None,
+        due_at: float | None = None,
+        meta: dict[str, Any] | None = None,
+        question_text: str | None = None,
+        answer_text: str | None = None,
     ) -> None:
         fields: list[str] = []
         params: list[Any] = []
@@ -432,7 +425,9 @@ class TaskStore:
         finally:
             conn.close()
 
-    def save_answer_and_mark_received(self, task_id: int, answer_text: str, now_ts: float | None = None) -> None:
+    def save_answer_and_mark_received(
+        self, task_id: int, answer_text: str, now_ts: float | None = None
+    ) -> None:
         """
         Record the answer and move the task into phase-2:
           status -> answer_received

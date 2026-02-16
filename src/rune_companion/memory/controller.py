@@ -1,7 +1,5 @@
 # src/rune_companion/memory/controller.py
 
-from __future__ import annotations
-
 """
 Memory/task planner.
 
@@ -12,12 +10,16 @@ and optional task creation. The plan is applied defensively:
 - failures do not crash the main chat loop.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+from ..core.ports import ChatMessage
+from ..core.state import AppState
 from .api import (
     remember_global_fact,
     remember_relationship_fact,
@@ -25,7 +27,6 @@ from .api import (
     remember_user_fact,
 )
 from .store import MemoryItem
-from ..core.state import AppState
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ If no actions are needed, return:
 
 
 def _format_utc(ts: float) -> str:
-    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts, tz=UTC)
     return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
@@ -89,12 +90,12 @@ def _extract_json_object(raw: str) -> str:
 
 
 def run_memory_controller(
-        state: AppState,
-        *,
-        user_id: str | None,
-        room_id: str | None,
-        last_messages: list[dict[str, Any]],
-        current_memories: list[MemoryItem],
+    state: AppState,
+    *,
+    user_id: str | None,
+    room_id: str | None,
+    last_messages: list[ChatMessage],
+    current_memories: list[MemoryItem],
 ) -> dict[str, Any] | None:
     """
     Ask the planner LLM for a memory/task update plan.
@@ -107,7 +108,7 @@ def run_memory_controller(
     max_history_msgs = int(getattr(s, "memory_ctrl_planner_max_history_msgs", 12))
     max_msg_chars = int(getattr(s, "memory_ctrl_planner_max_msg_chars", 500))
 
-    now_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    now_utc = datetime.now(UTC).replace(microsecond=0).isoformat()
     lines: list[str] = [
         f"current_time_utc: {now_utc}",
         f"user_id: {user_id or 'None'}",
@@ -150,8 +151,8 @@ def run_memory_controller(
     raw = ""
     try:
         for piece in state.llm.stream_chat(
-                [{"role": "user", "content": user_message}],
-                MEMORY_CONTROLLER_SYSTEM_PROMPT,
+            [{"role": "user", "content": user_message}],
+            MEMORY_CONTROLLER_SYSTEM_PROMPT,
         ):
             raw += piece
     except Exception:
@@ -178,11 +179,11 @@ def run_memory_controller(
 
 
 def apply_memory_plan(
-        state: AppState,
-        plan: dict[str, Any],
-        *,
-        default_user_id: str | None = None,
-        default_room_id: str | None = None,
+    state: AppState,
+    plan: dict[str, Any],
+    *,
+    default_user_id: str | None = None,
+    default_room_id: str | None = None,
 ) -> None:
     """
     Execute operations from the plan.
@@ -229,7 +230,9 @@ def apply_memory_plan(
                 importance = 0.7
 
             tags_raw = op.get("tags")
-            tags = [str(t) for t in tags_raw] if isinstance(tags_raw, list) else []
+            tags_add: list[str] | None = (
+                [str(t) for t in tags_raw] if isinstance(tags_raw, list) else None
+            )
 
             if not subject_id:
                 if subject_type in ("user", "relationship"):
@@ -240,9 +243,21 @@ def apply_memory_plan(
                     subject_id = state.memory.global_subject_id()
 
             if subject_type == "user" and isinstance(subject_id, str) and subject_id:
-                remember_user_fact(state, subject_id, text, importance=float(importance), tags=tags)
+                remember_user_fact(
+                    state,
+                    subject_id,
+                    text,
+                    importance=float(importance),
+                    tags=tags_add,
+                )
             elif subject_type == "room" and isinstance(subject_id, str) and subject_id:
-                remember_room_fact(state, subject_id, text, importance=float(importance), tags=tags)
+                remember_room_fact(
+                    state,
+                    subject_id,
+                    text,
+                    importance=float(importance),
+                    tags=tags_add,
+                )
             elif subject_type == "relationship" and isinstance(subject_id, str) and subject_id:
                 remember_relationship_fact(
                     state,
@@ -250,10 +265,10 @@ def apply_memory_plan(
                     default_room_id,
                     text,
                     importance=float(importance),
-                    tags=tags,
+                    tags=tags_add,
                 )
             else:
-                remember_global_fact(state, text, importance=float(importance), tags=tags)
+                remember_global_fact(state, text, importance=float(importance), tags=tags_add)
 
         elif op_kind == "update":
             mem_id = op.get("id")
@@ -268,14 +283,22 @@ def apply_memory_plan(
                     logger.debug("Skipping update text: missing evidence id=%s", mem_id)
                     new_text = None
                 elif history_text and not _evidence_matches_history(evidence, history_text):
-                    logger.debug("Skipping update text: evidence not found id=%s evidence=%r", mem_id, evidence)
+                    logger.debug(
+                        "Skipping update text: evidence not found id=%s evidence=%r",
+                        mem_id,
+                        evidence,
+                    )
                     new_text = None
 
             new_importance = op.get("importance")
-            imp: float | None = float(new_importance) if isinstance(new_importance, (int, float)) else None
+            imp: float | None = (
+                float(new_importance) if isinstance(new_importance, (int, float)) else None
+            )
 
             tags_raw = op.get("tags")
-            tags: list[str] | None = [str(t) for t in tags_raw] if isinstance(tags_raw, list) else None
+            tags_update: list[str] | None = (
+                [str(t) for t in tags_raw] if isinstance(tags_raw, list) else None
+            )
 
             person_ref = op.get("person_ref")
             if person_ref is not None and not isinstance(person_ref, str):
@@ -284,7 +307,7 @@ def apply_memory_plan(
             state.memory.update_memory(
                 mem_id,
                 text=new_text if isinstance(new_text, str) else None,
-                tags=tags,
+                tags=tags_update,
                 importance=imp,
                 person_ref=person_ref,
             )
@@ -346,7 +369,9 @@ def apply_memory_plan(
                     question_text=question_text,
                 )
             except Exception:
-                logger.exception("task_add failed kind=%s to=%s room=%s", kind, to_user_id, task_room_id)
+                logger.exception(
+                    "task_add failed kind=%s to=%s room=%s", kind, to_user_id, task_room_id
+                )
 
         else:
             continue
