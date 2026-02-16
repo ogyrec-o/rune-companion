@@ -44,7 +44,7 @@ def maybe_handle_reply(
 ) -> None:
     """
     Compatibility helper (if some connector still calls it).
-    NOTE: core/chat.py уже делает capture reply сам.
+    NOTE: core/chat.py already captures ask-task replies.
     """
     if not user_id or not room_id:
         return
