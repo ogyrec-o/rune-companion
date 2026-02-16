@@ -357,9 +357,7 @@ def stream_reply(
     if state.save_history:
         key = _make_key(user_id, room_id)
         history = (
-            state.dialog_histories.setdefault(key, [])
-            if key is not None
-            else state.conversation
+            state.dialog_histories.setdefault(key, []) if key is not None else state.conversation
         )
         messages_for_llm: list[ChatMessage] = [*history, {"role": "user", "content": user_text}]
     else:

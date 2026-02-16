@@ -20,9 +20,10 @@ from pathlib import Path
 from typing import Literal, cast
 
 from ..config import get_settings
-from ..core.ports import ChatMessage
+from ..core.ports import ChatMessage, LLMClient
 from ..core.state import AppState
 from ..llm.client import OpenRouterLLMClient
+from ..llm.offline import OfflineLLMClient
 from ..memory.store import MemoryStore
 from ..tasks.task_store import TaskStore
 from ..tts.engine import TTSEngine
@@ -50,9 +51,16 @@ def create_initial_state(*, settings=None) -> AppState:
 
     _ensure_local_dirs(settings)
 
+    llm_client: LLMClient
+    try:
+        llm_client = OpenRouterLLMClient(settings)
+    except Exception:
+        # Fallback for demos / local runs without external services.
+        llm_client = OfflineLLMClient()
+
     state = AppState(
         settings=settings,
-        llm=OpenRouterLLMClient(settings),
+        llm=llm_client,
         tts_engine=TTSEngine(enabled=settings.tts_mode, settings=settings),
         memory=MemoryStore(settings.memory_db_path),
         task_store=TaskStore(settings.tasks_db_path),
