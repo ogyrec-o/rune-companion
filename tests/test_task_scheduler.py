@@ -29,7 +29,7 @@ class FakeTaskRepo:
         out: list[Task] = []
         for t in self.tasks.values():
             if t.status in (TaskStatus.PENDING, TaskStatus.ANSWER_RECEIVED) and (
-                    t.due_at is None or t.due_at <= now_ts
+                t.due_at is None or t.due_at <= now_ts
             ):
                 out.append(t)
         out.sort(key=lambda x: (x.due_at or x.created_at, x.created_at))
@@ -47,14 +47,14 @@ class FakeTaskRepo:
         self.tasks[task_id] = replace(t, status=new_status, updated_at=time.time())
 
     def update_task_fields(
-            self,
-            task_id: int,
-            *,
-            status=None,
-            due_at=None,
-            meta=None,
-            question_text=None,
-            answer_text=None,
+        self,
+        task_id: int,
+        *,
+        status=None,
+        due_at=None,
+        meta=None,
+        question_text=None,
+        answer_text=None,
     ):
         t = self.tasks[task_id]
         self.tasks[task_id] = replace(

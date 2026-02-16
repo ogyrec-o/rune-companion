@@ -16,8 +16,7 @@ from ..tts.engine import TTSEngine  # concrete engine (not the Protocol)
 CommandEmitter = Callable[[str], None]
 CommandHandler4 = Callable[[AppState, list[str], str | None, str | None], str]
 CommandHandler5 = Callable[
-    [AppState, list[str], str | None, str | None, CommandEmitter | None],
-    str
+    [AppState, list[str], str | None, str | None, CommandEmitter | None], str
 ]
 CommandHandler = CommandHandler4 | CommandHandler5
 

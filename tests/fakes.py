@@ -37,13 +37,14 @@ class FakeMessenger(OutboundMessenger):
     """
     Fake OutboundMessenger used by scheduler tests.
     """
+
     sent: list[SentMessage] = field(default_factory=list)
 
     async def send_text(
-            self,
-            *,
-            text: str,
-            room_id: str | None = None,
-            to_user_id: str | None = None,
+        self,
+        *,
+        text: str,
+        room_id: str | None = None,
+        to_user_id: str | None = None,
     ) -> None:
         self.sent.append(SentMessage(text=text, room_id=room_id, to_user_id=to_user_id))
