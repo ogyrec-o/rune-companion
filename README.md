@@ -15,7 +15,7 @@ Rune Companion is a small, publishable chat companion framework with:
 The project is intentionally structured as a tiny "core + ports + connectors" app:
 connectors handle I/O, the core builds prompts and streams replies, and storage/LLM/TTS are injected.
 
-## Architecture overview (one minute)
+## Architecture overview (short)
 
 High-level flow:
 
