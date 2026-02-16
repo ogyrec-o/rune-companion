@@ -88,7 +88,10 @@ known-first-party = ["rune_companion"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src/rune_companion"]
+packages = ["rune_companion"]
+
+mypy_path = ["src"]
+namespace_packages = false
 
 pretty = true
 show_error_codes = true
