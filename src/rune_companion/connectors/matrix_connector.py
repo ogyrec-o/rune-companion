@@ -1,7 +1,5 @@
 # src/rune_companion/connectors/matrix_connector.py
 
-from __future__ import annotations
-
 """
 Matrix connector.
 
@@ -11,23 +9,25 @@ so it can coexist with the blocking console REPL.
 Also wires the task scheduler with an OutboundMessenger implementation that sends Matrix messages.
 """
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional, Set
+from typing import Any, cast
 
 from nio import MatrixRoom, RoomMessageText, exceptions
 
 from ..cli.commands import registry as command_registry
-from .matrix_client import create_matrix_client
-from .matrix_e2ee import setup_self_verification
 from ..core.chat import generate_reply_text
 from ..core.ports import OutboundMessenger
 from ..core.state import AppState
 from ..tasks.task_scheduler import run_task_scheduler
+from .matrix_client import create_matrix_client
+from .matrix_e2ee import setup_self_verification
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def _ms_now() -> int:
     return int(time.time() * 1000)
 
 
-def _room_allowlist(settings_rooms: list[str]) -> Optional[Set[str]]:
+def _room_allowlist(settings_rooms: list[str]) -> set[str] | None:
     rooms = [r.strip() for r in (settings_rooms or []) if str(r).strip()]
     return set(rooms) if rooms else None
 
@@ -69,7 +69,9 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
         logger.info("Matrix connector disabled via settings.")
         return
 
-    if not getattr(settings, "matrix_homeserver", "") or not getattr(settings, "matrix_user_id", ""):
+    if not getattr(settings, "matrix_homeserver", "") or not getattr(
+        settings, "matrix_user_id", ""
+    ):
         logger.error("Matrix is enabled but not configured (homeserver/user_id).")
         return
 
@@ -79,10 +81,12 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
     allowed_rooms = _room_allowlist(getattr(settings, "matrix_rooms", []) or [])
     logger.info("Matrix allowed_rooms=%s", allowed_rooms if allowed_rooms is not None else "ALL")
 
-    client = await create_matrix_client(settings)
-    if client is None:
+    client0 = await create_matrix_client(settings)
+    if client0 is None:
         logger.error("Matrix client creation failed; connector will stop.")
         return
+
+    client = cast(Any, client0)
 
     logger.info(
         "Matrix client started (user=%s, homeserver=%s).",
@@ -100,11 +104,11 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
 
     class _MatrixMessenger(OutboundMessenger):
         async def send_text(
-                self,
-                *,
-                text: str,
-                room_id: str | None = None,
-                to_user_id: str | None = None,  # optional, ignored for now
+            self,
+            *,
+            text: str,
+            room_id: str | None = None,
+            to_user_id: str | None = None,  # optional, ignored for now
         ) -> None:
             msg = (text or "").strip()
             if not msg:
@@ -122,7 +126,9 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
                     rid = next(iter(client.rooms.keys()))
 
             if not rid:
-                raise RuntimeError("Matrix messenger: no room_id available to send the task message.")
+                raise RuntimeError(
+                    "Matrix messenger: no room_id available to send the task message."
+                )
 
             await _send_text(client, room_id=rid, text=msg)
 
@@ -142,7 +148,9 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
                 batch_limit=batch_n,
             )
         )
-        logger.info("Task scheduler started (poll=%.1fs retry=%.1fs batch=%d).", poll_s, retry_s, batch_n)
+        logger.info(
+            "Task scheduler started (poll=%.1fs retry=%.1fs batch=%d).", poll_s, retry_s, batch_n
+        )
     else:
         logger.info("Task scheduler disabled via settings (tasks_enabled=false).")
 
@@ -174,6 +182,7 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
 
         # Commands (/help, /tts, ...)
         if body.startswith("/"):
+
             def emit(text: str) -> None:
                 logger.debug("Command note (room=%s user=%s): %s", room.room_id, event.sender, text)
 
@@ -219,7 +228,9 @@ async def _run_matrix_bot(state: AppState, stop_event: asyncio.Event) -> None:
             # Guard shared state with a lock (best-effort).
             if lock:
                 with lock:
-                    reply = generate_reply_text(state, body, user_id=event.sender, room_id=room.room_id)
+                    reply = generate_reply_text(
+                        state, body, user_id=event.sender, room_id=room.room_id
+                    )
             else:
                 reply = generate_reply_text(state, body, user_id=event.sender, room_id=room.room_id)
 

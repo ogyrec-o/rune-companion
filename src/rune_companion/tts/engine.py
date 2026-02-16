@@ -7,7 +7,7 @@ import queue
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class TTSConfig:
     """Runtime TTS config resolved from settings/env."""
-    speaker_wav: Optional[str]
+
+    speaker_wav: str | None
     xtts_speaker_name: str
     xtts_language: str
 
@@ -23,7 +24,9 @@ class TTSConfig:
 def _resolve_tts_config(settings: Any | None) -> TTSConfig:
     # Preferred: read from injected settings
     if settings is not None:
-        speaker_wav = getattr(settings, "speaker_wav", None) or getattr(settings, "tts_speaker_wav", None)
+        speaker_wav = getattr(settings, "speaker_wav", None) or getattr(
+            settings, "tts_speaker_wav", None
+        )
         return TTSConfig(
             speaker_wav=str(speaker_wav) if speaker_wav else None,
             xtts_speaker_name=getattr(settings, "xtts_speaker_name", "Ana Florence"),
@@ -32,7 +35,7 @@ def _resolve_tts_config(settings: Any | None) -> TTSConfig:
 
     # Legacy fallback: config.py constants (NO get_settings())
     try:
-        from ..config import SPEAKER_WAV, XTTS_LANGUAGE, XTTS_SPEAKER_NAME  # type: ignore
+        from ..config import SPEAKER_WAV, XTTS_LANGUAGE, XTTS_SPEAKER_NAME
 
         return TTSConfig(
             speaker_wav=str(SPEAKER_WAV) if SPEAKER_WAV else None,
@@ -60,11 +63,11 @@ class TTSEngine:
     def __init__(self, enabled: bool, settings: Any | None = None):
         self.enabled = bool(enabled)
 
-        self._queue: Optional["queue.Queue[str | None]"] = None
-        self._worker: Optional[threading.Thread] = None
+        self._queue: queue.Queue[str | None] | None = None
+        self._worker: threading.Thread | None = None
 
         self._tts_model: Any = None
-        self._sample_rate: Optional[int] = None
+        self._sample_rate: int | None = None
 
         self._sd: Any = None  # sounddevice module (runtime import)
         self._stop_requested = False
@@ -74,13 +77,15 @@ class TTSEngine:
             return
 
         # NOTE: imports can be slow, log before doing them so the user isn't stuck in silence.
-        logger.info("TTS enabling: importing dependencies (torch/TTS/sounddevice)... this may take a while.")
+        logger.info(
+            "TTS enabling: importing dependencies (torch/TTS/sounddevice)... this may take a while."
+        )
 
         # Lazy / optional imports
         try:
-            import torch  # type: ignore
-            from TTS.api import TTS  # type: ignore
-            import sounddevice as sd  # type: ignore
+            import sounddevice as sd
+            import torch
+            from TTS.api import TTS
         except Exception as e:
             self.enabled = False
             logger.warning(
@@ -99,7 +104,9 @@ class TTSEngine:
         # Initialize XTTS model
         try:
             device = "cuda" if getattr(torch, "cuda", None) and torch.cuda.is_available() else "cpu"
-            logger.info("Initializing XTTS (device=%s). First run may download large model files.", device)
+            logger.info(
+                "Initializing XTTS (device=%s). First run may download large model files.", device
+            )
 
             self._tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 
@@ -144,7 +151,8 @@ class TTSEngine:
                             wav_file = str(p)
                         else:
                             logger.warning(
-                                "speaker_wav is set but file does not exist: %s. Falling back to speaker name.",
+                                "speaker_wav is set but file does not exist: %s. "
+                                "Falling back to speaker name.",
                                 wav_path,
                             )
 

@@ -1,7 +1,5 @@
 # src/rune_companion/core/chat.py
 
-from __future__ import annotations
-
 """
 Core chat orchestration.
 
@@ -12,12 +10,16 @@ This module is transport-agnostic:
 
 Key invariants:
 - history is updated only after a successful stream completion (to avoid partial saves),
-- memory/tasks are injected inside a single <MEMORY>...</MEMORY> block to keep the prompt structure stable.
+- memory/tasks are injected inside a single <MEMORY>...</MEMORY> block
+  to keep the prompt structure stable.
 """
 
+from __future__ import annotations
+
 import logging
-from datetime import datetime, timezone
-from typing import Any, Iterable
+from collections.abc import Iterable
+from datetime import UTC, datetime
+from typing import Any
 
 from ..memory.api import (
     get_global_memories,
@@ -29,6 +31,7 @@ from ..memory.api import (
 from ..memory.controller import apply_memory_plan, run_memory_controller
 from ..memory.summarizer import summarize_dialog_chunk
 from .persona import get_system_prompt
+from .ports import ChatMessage
 from .state import AppState
 
 logger = logging.getLogger(__name__)
@@ -43,7 +46,7 @@ def _make_key(user_id: str | None, room_id: str | None) -> str | None:
 
 def _format_utc_ts(ts: float) -> str:
     """Format UNIX timestamp into a human-readable UTC string."""
-    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts, tz=UTC)
     return dt.strftime("%Y-%m-%d %H:%M UTC")
 
 
@@ -97,7 +100,7 @@ def _format_task_line(t: Any) -> str:
     due_str = "any time"
     due_at = getattr(t, "due_at", None)
     if due_at is not None:
-        dt = datetime.fromtimestamp(float(due_at), tz=timezone.utc)
+        dt = datetime.fromtimestamp(float(due_at), tz=UTC)
         due_str = dt.strftime("%Y-%m-%d %H:%M UTC")
 
     who: list[str] = []
@@ -142,7 +145,9 @@ def _build_memory_block(*, sections: list[str]) -> str:
     return f"{header}{body}\n</MEMORY>"
 
 
-def _maybe_capture_task_reply(state: AppState, user_id: str | None, room_id: str | None, user_text: str) -> None:
+def _maybe_capture_task_reply(
+    state: AppState, user_id: str | None, room_id: str | None, user_text: str
+) -> None:
     """
     If message looks like an answer to a previously created ask_user* task,
     store it and mark task as ANSWER_RECEIVED so scheduler can do phase-2.
@@ -160,18 +165,25 @@ def _maybe_capture_task_reply(state: AppState, user_id: str | None, room_id: str
         return
 
     try:
-        now_ts = datetime.now(timezone.utc).timestamp()
-        state.task_store.save_answer_and_mark_received(task.id, user_text, now_ts)  # type: ignore[attr-defined]
-        logger.info("Captured answer for task_id=%s user=%s room=%s", getattr(task, "id", "?"), user_id, room_id)
+        now_ts = datetime.now(UTC).timestamp()
+        state.task_store.save_answer_and_mark_received(task.id, user_text, now_ts)
+        logger.info(
+            "Captured answer for task_id=%s user=%s room=%s",
+            getattr(task, "id", "?"),
+            user_id,
+            room_id,
+        )
     except Exception:
-        logger.exception("save_answer_and_mark_received failed task_id=%s", getattr(task, "id", "?"))
+        logger.exception(
+            "save_answer_and_mark_received failed task_id=%s", getattr(task, "id", "?")
+        )
 
 
 def _maybe_run_episode_summary(
-        state: AppState,
-        user_id: str | None,
-        room_id: str | None,
-        messages_for_llm: list[dict[str, str]],
+    state: AppState,
+    user_id: str | None,
+    room_id: str | None,
+    messages_for_llm: list[ChatMessage],
 ) -> None:
     """
     If enough messages accumulated in this dialog, ask the summarizer model
@@ -237,10 +249,10 @@ def _maybe_run_episode_summary(
 
 
 def _maybe_run_memory_controller(
-        state: AppState,
-        user_id: str | None,
-        room_id: str | None,
-        messages_for_llm: list[dict[str, str]],
+    state: AppState,
+    user_id: str | None,
+    room_id: str | None,
+    messages_for_llm: list[ChatMessage],
 ) -> None:
     """
     Memory controller:
@@ -278,7 +290,9 @@ def _maybe_run_memory_controller(
 
     if user_id:
         current_memories.extend(get_top_user_memories(state, user_id, limit=limit_user))
-        current_memories.extend(get_top_relationship_memories(state, user_id, room_id, limit=limit_rel))
+        current_memories.extend(
+            get_top_relationship_memories(state, user_id, room_id, limit=limit_rel)
+        )
     if room_id:
         current_memories.extend(get_top_room_memories(state, room_id, limit=limit_room))
 
@@ -316,11 +330,11 @@ def _collect_open_tasks_for_user(state: AppState, user_id: str | None) -> list[A
 
 
 def stream_reply(
-        state: AppState,
-        user_text: str,
-        *,
-        user_id: str | None = None,
-        room_id: str | None = None,
+    state: AppState,
+    user_text: str,
+    *,
+    user_id: str | None = None,
+    room_id: str | None = None,
 ) -> Iterable[str]:
     """
     Transport-neutral streaming API.
@@ -330,21 +344,24 @@ def stream_reply(
     - Optionally runs episodic summarization + memory controller (which may create tasks).
     - Captures user replies to ask-user tasks before generating a new response.
 
-    History is appended only if streaming completes successfully, to avoid storing partial assistant outputs.
+    History is appended only if streaming completes successfully,
+    to avoid storing partial assistant outputs.
     """
     # If the user is answering a previously asked question (ask_user* task),
     # capture it first so the scheduler can run phase-2 before we generate a new reply.
     _maybe_capture_task_reply(state, user_id, room_id, user_text)
 
-    # Build history.
-    history: list[dict[str, str]] | None = None
+    # Build history / messages_for_llm (do NOT mutate history until stream completes).
+    history: list[ChatMessage] | None = None
+
     if state.save_history:
         key = _make_key(user_id, room_id)
-        if key is not None:
-            history = state.dialog_histories.setdefault(key, [])
-        else:
-            history = state.conversation
-        messages_for_llm = [*history, {"role": "user", "content": user_text}]
+        history = (
+            state.dialog_histories.setdefault(key, [])
+            if key is not None
+            else state.conversation
+        )
+        messages_for_llm: list[ChatMessage] = [*history, {"role": "user", "content": user_text}]
     else:
         messages_for_llm = [{"role": "user", "content": user_text}]
 
@@ -364,7 +381,9 @@ def stream_reply(
 
     user_mems = get_top_user_memories(state, user_id, limit=limit_user) if user_id else []
     room_mems = get_top_room_memories(state, room_id, limit=limit_room) if room_id else []
-    rel_mems = get_top_relationship_memories(state, user_id, room_id, limit=limit_rel) if user_id else []
+    rel_mems = (
+        get_top_relationship_memories(state, user_id, room_id, limit=limit_rel) if user_id else []
+    )
     global_mems = get_global_memories(state, limit=limit_global)
     global_userstories = get_global_userstories(state, limit=limit_userstories)
 
@@ -414,7 +433,8 @@ def stream_reply(
         system_prompt = f"{system_prompt.strip()}\n\n{memory_block}\n"
 
     # Stream from LLM and collect assistant text to update history at the end.
-    # We only persist history on a clean completion; interrupted streams should not poison saved dialogs.
+    # We only persist history on a clean completion; interrupted streams
+    # should not poison saved dialogs.
     assistant_full = ""
     completed = False
     try:
@@ -437,11 +457,11 @@ def stream_reply(
 
 
 def generate_reply_text(
-        state: AppState,
-        user_text: str,
-        *,
-        user_id: str | None = None,
-        room_id: str | None = None,
+    state: AppState,
+    user_text: str,
+    *,
+    user_id: str | None = None,
+    room_id: str | None = None,
 ) -> str:
     """
     Non-streaming helper for connectors that want a full string.

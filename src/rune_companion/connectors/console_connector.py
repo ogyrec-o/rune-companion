@@ -1,7 +1,5 @@
 # src/rune_companion/connectors/console_connector.py
 
-from __future__ import annotations
-
 """
 Console connector.
 
@@ -11,11 +9,12 @@ A blocking terminal REPL that:
 - optionally speaks completed sentences via TTS while streaming.
 """
 
+from __future__ import annotations
+
 import logging
 import re
 import sys
 from datetime import datetime
-from typing import Optional
 
 from ..cli.commands import registry as command_registry
 from ..core.chat import stream_reply
@@ -126,7 +125,9 @@ def run_console_loop(state: AppState) -> None:
                                         try:
                                             state.tts_engine.speak_sentence(sentence)
                                         except Exception:
-                                            logger.debug("TTS speak_sentence failed.", exc_info=True)
+                                            logger.debug(
+                                                "TTS speak_sentence failed.", exc_info=True
+                                            )
             else:
                 pieces = stream_reply(state, user_input)
                 for piece in pieces:

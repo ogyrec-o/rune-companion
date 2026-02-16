@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
 
 ENV_PREFIX = "RUNE"
 
@@ -26,7 +25,7 @@ def _k(suffix: str) -> str:
 def _load_dotenv_if_available() -> None:
     """Load .env locally if python-dotenv is installed. Safe no-op otherwise."""
     try:
-        from dotenv import load_dotenv  # type: ignore
+        from dotenv import load_dotenv
     except Exception:
         return
     load_dotenv(override=False)
@@ -65,7 +64,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _env_list(name: str, default: List[str]) -> List[str]:
+def _env_list(name: str, default: list[str]) -> list[str]:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
         return list(default)
@@ -95,10 +94,10 @@ class Settings:
     matrix_enabled: bool
 
     # ---- LLM / OpenRouter ----
-    openrouter_api_key: Optional[str]
+    openrouter_api_key: str | None
     openrouter_base_url: str
-    llm_models: List[str]
-    extra_headers: Dict[str, str]
+    llm_models: list[str]
+    extra_headers: dict[str, str]
 
     # ---- TTS ----
     speaker_wav: str
@@ -109,7 +108,7 @@ class Settings:
     matrix_homeserver: str
     matrix_user_id: str
     matrix_password: str
-    matrix_rooms: List[str]
+    matrix_rooms: list[str]
 
     # ---- Local data paths (ignored by git) ----
     data_dir: Path
@@ -139,7 +138,7 @@ class Settings:
     memory_max_dialog_messages: int
 
     @staticmethod
-    def from_env() -> "Settings":
+    def from_env() -> Settings:
         # App name: accept both RUNE_APP_NAME and RUNE_APP_TITLE for convenience.
         app_name = _first_env(_k("APP_NAME"), default=_env(_k("APP_TITLE"), "rune")) or "rune"
         log_level = _env(_k("LOG_LEVEL"), "INFO")
@@ -150,7 +149,9 @@ class Settings:
         console_enabled = _env_bool(_k("CONSOLE_ENABLED"), _env_bool("CONSOLE_ENABLED", True))
         matrix_enabled = _env_bool(_k("MATRIX_ENABLED"), _env_bool("MATRIX_ENABLED", False))
 
-        openrouter_api_key = _first_env(_k("OPENROUTER_API_KEY"), "OPENROUTER_API_KEY", default=None)
+        openrouter_api_key = _first_env(
+            _k("OPENROUTER_API_KEY"), "OPENROUTER_API_KEY", default=None
+        )
         openrouter_base_url = _env(_k("OPENROUTER_BASE_URL"), "https://openrouter.ai/api/v1")
 
         http_referer = _env(_k("HTTP_REFERER"), "https://example.com")
@@ -176,26 +177,42 @@ class Settings:
         xtts_speaker_name = _env(_k("XTTS_SPEAKER_NAME"), "Ana Florence")
         xtts_language = _env(_k("XTTS_LANGUAGE"), "ru")
 
-        matrix_homeserver = (_first_env(_k("MATRIX_HOMESERVER"), "MATRIX_HOMESERVER", default="") or "").strip()
-        matrix_user_id = (_first_env(_k("MATRIX_USER_ID"), "MATRIX_USER_ID", default="") or "").strip()
-        matrix_password = (_first_env(_k("MATRIX_PASSWORD"), "MATRIX_PASSWORD", default="") or "").strip()
+        matrix_homeserver = (
+            _first_env(_k("MATRIX_HOMESERVER"), "MATRIX_HOMESERVER", default="") or ""
+        ).strip()
+        matrix_user_id = (
+            _first_env(_k("MATRIX_USER_ID"), "MATRIX_USER_ID", default="") or ""
+        ).strip()
+        matrix_password = (
+            _first_env(_k("MATRIX_PASSWORD"), "MATRIX_PASSWORD", default="") or ""
+        ).strip()
         matrix_rooms = _env_list(_k("MATRIX_ROOMS"), _env_list("MATRIX_ROOMS", []))
 
         data_dir = _env_path(_k("DATA_DIR"), Path(".local/rune"))
         matrix_store_path = _env_path(_k("MATRIX_STORE_PATH"), data_dir / "matrix_store")
         memory_db_path = _env_path(_k("MEMORY_DB_PATH"), data_dir / "memory.sqlite3")
         tasks_db_path = _env_path(_k("TASKS_DB_PATH"), data_dir / "tasks.sqlite3")
-        dialog_history_path = _env_path(_k("DIALOG_HISTORY_PATH"), data_dir / "dialog_histories.json")
+        dialog_history_path = _env_path(
+            _k("DIALOG_HISTORY_PATH"), data_dir / "dialog_histories.json"
+        )
 
         memory_max_user = _env_int(_k("MEMORY_MAX_USER"), _env_int("MEMORY_MAX_USER", 800))
         memory_max_room = _env_int(_k("MEMORY_MAX_ROOM"), _env_int("MEMORY_MAX_ROOM", 400))
         memory_max_rel = _env_int(_k("MEMORY_MAX_REL"), _env_int("MEMORY_MAX_REL", 600))
         memory_max_global = _env_int(_k("MEMORY_MAX_GLOBAL"), _env_int("MEMORY_MAX_GLOBAL", 800))
 
-        memory_prompt_limit_user = _env_int(_k("MEMORY_PROMPT_LIMIT_USER"), _env_int("MEMORY_PROMPT_LIMIT_USER", 12))
-        memory_prompt_limit_rel = _env_int(_k("MEMORY_PROMPT_LIMIT_REL"), _env_int("MEMORY_PROMPT_LIMIT_REL", 12))
-        memory_prompt_limit_room = _env_int(_k("MEMORY_PROMPT_LIMIT_ROOM"), _env_int("MEMORY_PROMPT_LIMIT_ROOM", 8))
-        memory_prompt_limit_global = _env_int(_k("MEMORY_PROMPT_LIMIT_GLOBAL"), _env_int("MEMORY_PROMPT_LIMIT_GLOBAL", 8))
+        memory_prompt_limit_user = _env_int(
+            _k("MEMORY_PROMPT_LIMIT_USER"), _env_int("MEMORY_PROMPT_LIMIT_USER", 12)
+        )
+        memory_prompt_limit_rel = _env_int(
+            _k("MEMORY_PROMPT_LIMIT_REL"), _env_int("MEMORY_PROMPT_LIMIT_REL", 12)
+        )
+        memory_prompt_limit_room = _env_int(
+            _k("MEMORY_PROMPT_LIMIT_ROOM"), _env_int("MEMORY_PROMPT_LIMIT_ROOM", 8)
+        )
+        memory_prompt_limit_global = _env_int(
+            _k("MEMORY_PROMPT_LIMIT_GLOBAL"), _env_int("MEMORY_PROMPT_LIMIT_GLOBAL", 8)
+        )
         memory_prompt_limit_global_userstories = _env_int(
             _k("MEMORY_PROMPT_LIMIT_GLOBAL_USERSTORIES"),
             _env_int("MEMORY_PROMPT_LIMIT_GLOBAL_USERSTORIES", 8),
@@ -269,13 +286,13 @@ SETTINGS = Settings.from_env()
 # ---- Optional local overrides (never committed) ----
 # Prefer .env for secrets; use config_local.py only for safe overrides.
 try:
-    import config_local as _config_local  # type: ignore
+    import config_local as _config_local
 
     # Simple overrides for selected legacy names. Keep it explicit.
     if hasattr(_config_local, "CONSOLE_ENABLED"):
-        object.__setattr__(SETTINGS, "console_enabled", bool(_config_local.CONSOLE_ENABLED))  # type: ignore[misc]
+        object.__setattr__(SETTINGS, "console_enabled", bool(_config_local.CONSOLE_ENABLED))
     if hasattr(_config_local, "MATRIX_ENABLED"):
-        object.__setattr__(SETTINGS, "matrix_enabled", bool(_config_local.MATRIX_ENABLED))  # type: ignore[misc]
+        object.__setattr__(SETTINGS, "matrix_enabled", bool(_config_local.MATRIX_ENABLED))
 except Exception:
     pass
 

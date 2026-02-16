@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sqlite3
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +65,10 @@ class MemoryStore:
     @staticmethod
     def _configure_conn(conn: sqlite3.Connection) -> None:
         # Best-effort pragmas. Failures should not stop the app.
-        try:
+        with contextlib.suppress(Exception):
             conn.execute("PRAGMA foreign_keys=ON")
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             conn.execute("PRAGMA journal_mode=WAL")
-        except Exception:
-            pass
 
     @staticmethod
     def _tags_to_str(tags: Iterable[str] | None) -> str:
@@ -93,15 +91,15 @@ class MemoryStore:
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS memories (
-                                                        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                                                        subject_type  TEXT NOT NULL,
-                                                        subject_id    TEXT NOT NULL,
-                                                        text          TEXT NOT NULL,
-                                                        tags          TEXT NOT NULL DEFAULT '',
-                                                        importance    REAL NOT NULL DEFAULT 0.5,
-                                                        last_updated  REAL NOT NULL,
-                                                        source        TEXT NOT NULL DEFAULT 'auto',
-                                                        person_ref    TEXT
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subject_type  TEXT NOT NULL,
+                    subject_id    TEXT NOT NULL,
+                    text          TEXT NOT NULL,
+                    tags          TEXT NOT NULL DEFAULT '',
+                    importance    REAL NOT NULL DEFAULT 0.5,
+                    last_updated  REAL NOT NULL,
+                    source        TEXT NOT NULL DEFAULT 'auto',
+                    person_ref    TEXT
                 )
                 """
             )
@@ -127,8 +125,7 @@ class MemoryStore:
                 "ON memories(importance, last_updated)"
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_memories_person_ref "
-                "ON memories(person_ref)"
+                "CREATE INDEX IF NOT EXISTS idx_memories_person_ref ON memories(person_ref)"
             )
 
             conn.commit()
@@ -138,15 +135,15 @@ class MemoryStore:
     # ---- public API ----
 
     def add_memory(
-            self,
-            *,
-            subject_type: str,
-            subject_id: str,
-            text: str,
-            tags: list[str] | None = None,
-            importance: float = 0.5,
-            source: str = "auto",
-            person_ref: str | None = None,
+        self,
+        *,
+        subject_type: str,
+        subject_id: str,
+        text: str,
+        tags: list[str] | None = None,
+        importance: float = 0.5,
+        source: str = "auto",
+        person_ref: str | None = None,
     ) -> int:
         """Insert a memory record and return its id."""
         if not subject_type:
@@ -180,7 +177,10 @@ class MemoryStore:
                 (subject_type, subject_id, text.strip(), tag_str, imp, ts, source, person_ref),
             )
             conn.commit()
-            mem_id = int(cur.lastrowid)
+            rowid = cur.lastrowid
+            if rowid is None:
+                raise RuntimeError("SQLite did not return lastrowid for memories insert")
+            mem_id = int(rowid)
             logger.debug(
                 "MemoryStore add id=%s type=%s subject=%s imp=%.2f tags=%s",
                 mem_id,
@@ -194,13 +194,13 @@ class MemoryStore:
             conn.close()
 
     def update_memory(
-            self,
-            mem_id: int,
-            *,
-            text: str | None = None,
-            tags: list[str] | None = None,
-            importance: float | None = None,
-            person_ref: str | None | Any = _UNSET,
+        self,
+        mem_id: int,
+        *,
+        text: str | None = None,
+        tags: list[str] | None = None,
+        importance: float | None = None,
+        person_ref: str | None | Any = _UNSET,
     ) -> None:
         """
         Update a memory record partially.
@@ -274,14 +274,14 @@ class MemoryStore:
             conn.close()
 
     def query_memory(
-            self,
-            *,
-            subject_type: str | None = None,
-            subject_id: str | None = None,
-            min_importance: float = 0.0,
-            limit: int = 20,
-            tag: str | None = None,
-            person_ref: str | None = None,
+        self,
+        *,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+        min_importance: float = 0.0,
+        limit: int = 20,
+        tag: str | None = None,
+        person_ref: str | None = None,
     ) -> list[MemoryItem]:
         """
         Query memories ordered by (importance DESC, last_updated DESC).

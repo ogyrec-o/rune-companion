@@ -39,10 +39,10 @@ class _ConsoleNoiseFilter(logging.Filter):
 
 
 def setup_logging(
-        *,
-        log_dir: str | Path = ".local/rune",
-        console_level: int = logging.INFO,
-        file_level: int = logging.DEBUG,
+    *,
+    log_dir: str | Path = ".local/rune",
+    console_level: int = logging.INFO,
+    file_level: int = logging.DEBUG,
 ) -> None:
     """
     Configure logging with:
