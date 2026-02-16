@@ -28,6 +28,8 @@ matrix = ["matrix-nio[e2e]"]
 dev = [
     "ruff>=0.6.0",
     "mypy>=1.8.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
 ]
 
 [tool.ruff]
@@ -93,3 +95,8 @@ check_untyped_defs = true
 ignore_missing_imports = true
 
 cache_dir = ".mypy_cache"
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+asyncio_mode = "auto"
