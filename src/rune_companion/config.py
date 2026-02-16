@@ -137,6 +137,11 @@ class Settings:
 
     memory_max_dialog_messages: int
 
+    # ---- Structured facts (slots) ----
+    memory_facts_enabled: bool
+    memory_facts_allowlist: list[str]
+    memory_prompt_limit_facts: int
+
     @staticmethod
     def from_env() -> Settings:
         # App name: accept both RUNE_APP_NAME and RUNE_APP_TITLE for convenience.
@@ -241,6 +246,37 @@ class Settings:
             _env_int("MEMORY_MAX_DIALOG_MESSAGES", 80),
         )
 
+        memory_facts_enabled = _env_bool(
+            _k("MEMORY_FACTS_ENABLED"),
+            _env_bool("MEMORY_FACTS_ENABLED", True),
+        )
+
+        memory_facts_allowlist = _env_list(
+            _k("MEMORY_FACTS_ALLOWLIST"),
+            _env_list(
+                "MEMORY_FACTS_ALLOWLIST",
+                [
+                    "preferred_name",
+                    "age",
+                    "language",
+                    "timezone",
+                    "location",
+                    "pronouns",
+                    "bio",
+                    "goals",
+                    "projects",
+                    "constraints",
+                    "likes",
+                    "dislikes",
+                ],
+            ),
+        )
+
+        memory_prompt_limit_facts = _env_int(
+            _k("MEMORY_PROMPT_LIMIT_FACTS"),
+            _env_int("MEMORY_PROMPT_LIMIT_FACTS", 10),
+        )
+
         return Settings(
             app_name=app_name,
             log_level=log_level,
@@ -278,6 +314,9 @@ class Settings:
             memory_episode_threshold_messages=memory_episode_threshold_messages,
             memory_episode_chunk_messages=memory_episode_chunk_messages,
             memory_max_dialog_messages=memory_max_dialog_messages,
+            memory_facts_enabled=memory_facts_enabled,
+            memory_facts_allowlist=memory_facts_allowlist,
+            memory_prompt_limit_facts=memory_prompt_limit_facts,
         )
 
 
@@ -360,3 +399,7 @@ MEMORY_EPISODE_THRESHOLD_MESSAGES = SETTINGS.memory_episode_threshold_messages
 MEMORY_EPISODE_CHUNK_MESSAGES = SETTINGS.memory_episode_chunk_messages
 
 MEMORY_MAX_DIALOG_MESSAGES = SETTINGS.memory_max_dialog_messages
+
+MEMORY_FACTS_ENABLED = SETTINGS.memory_facts_enabled
+MEMORY_FACTS_ALLOWLIST = SETTINGS.memory_facts_allowlist
+MEMORY_PROMPT_LIMIT_FACTS = SETTINGS.memory_prompt_limit_facts

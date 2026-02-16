@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import cast
 
 from ..core.state import AppState
-from ..memory.api import get_top_room_memories, get_top_user_memories
+from ..memory.api import get_top_room_memories, get_top_user_facts, get_top_user_memories
 from ..tts.engine import TTSEngine  # concrete engine (not the Protocol)
 
 CommandEmitter = Callable[[str], None]
@@ -239,9 +239,35 @@ def cmd_mem(
     )
 
 
+def cmd_profile(
+    state: AppState,
+    args: list[str],
+    user_id: str | None,
+    room_id: str | None,
+    emit: CommandEmitter | None = None,
+) -> str:
+    if not user_id:
+        return "No user_id in this context."
+    facts = get_top_user_facts(state, user_id, limit=30)
+    if not facts:
+        return f"No structured facts stored for user_id={user_id}."
+    lines = [f"Profile facts for {user_id}:"]
+    for f in facts:
+        v = f.value
+        if isinstance(v, list):
+            v = ", ".join(str(x) for x in v[:12]) + (", …" if len(v) > 12 else "")
+        lines.append(f"- {f.key}: {v} (conf={f.confidence:.2f}, src={f.source})")
+    return "\n".join(lines)
+
+
 registry.register("help", cmd_help, help_text="Show available commands.", aliases=["h", "?"])
 registry.register("status", cmd_status, help_text="Show current settings (mode/history/models).")
 registry.register("tts", cmd_tts, help_text="Enable/disable TTS: /tts on | /tts off.")
 registry.register(
     "mem", cmd_mem, help_text="Memory diagnostics: /mem user | /mem room | /mem stat."
+)
+registry.register(
+    "profile",
+    cmd_profile,
+    help_text="Show structured profile facts (slots) for the current user.",
 )
